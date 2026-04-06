@@ -38,8 +38,8 @@ STRESS_PAIRS = {
 # =============================================================================
 PLOT_DPI_SAVE = 300
 PLOT_DPI_WORKER = 150
-PLOT_FIGSIZE = (16, 12)
-PLOT_CMAP = 'coolwarm'
+PLOT_FIGSIZE = (14, 8)
+PLOT_CMAP = 'RdBu_r'
 CONTOUR_LEVELS = 24
 
 # =============================================================================

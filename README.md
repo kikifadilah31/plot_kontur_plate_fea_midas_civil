@@ -90,6 +90,7 @@ fea-plot [OPTIONS]
 | Argument | Deskripsi | Default |
 |----------|-----------|---------|
 | `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
+| `--theme` | Tema visual plot (`light` atau `dark`) | `light` |
 | `--comb` | Path ke file CSV kombinasi beban | *(none)* |
 | `--no-mesh` | Sembunyikan wireframe mesh | `False` |
 | `--thickness` | Tebal pelat dalam meter | `0.400` |

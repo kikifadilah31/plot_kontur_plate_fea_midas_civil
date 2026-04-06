@@ -39,6 +39,8 @@ def main():
                         help='Contour method (default: average-nodal)')
     parser.add_argument('--comb', type=str, default='',
                         help='Path to load combination CSV')
+    parser.add_argument('--theme', type=str, choices=['light', 'dark'], default='light',
+                        help='Plot styling theme (default: light)')
     args = parser.parse_args()
 
     show_mesh = not args.no_mesh
@@ -145,7 +147,7 @@ def main():
                     all_tasks.append((
                         x, y, z, tris, polys, cents,
                         col, col, suf, lc, load_folder,
-                        method, show_mesh, axial_arr, moment_arr,
+                        method, show_mesh, axial_arr, moment_arr, args.theme,
                     ))
 
         # --- Combination tasks ---
@@ -194,7 +196,7 @@ def main():
                     all_tasks.append((
                         x_ref, y_ref, z_comb, tris_ref, polys_ref, cents_ref,
                         col, col, suf, f"Comb: {combo_name}", combo_folder,
-                        method, show_mesh, axial_comb, moment_comb,
+                        method, show_mesh, axial_comb, moment_comb, args.theme,
                     ))
 
         # =====================================================================
