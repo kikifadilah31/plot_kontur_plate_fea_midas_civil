@@ -223,6 +223,26 @@ $$\sigma = \frac{N}{A} - \frac{M \cdot y}{I}$$
 | Moment (M) | (+) | Serat Atas Tekan (−), Serat Bawah Tarik (+) |
 | | (−) | Serat Atas Tarik (+), Serat Bawah Tekan (−) |
 
+### Perhitungan Tulangan Lentur (ACI/SNI)
+
+1. **Rasio Kuat Rencana ($R_n$)**
+   $$R_n = \frac{M_u}{\phi \cdot b \cdot d^2}$$
+   *(di mana $\phi = 0.9$ untuk lentur, $b = 1000$ mm, d = tinggi efektif)*
+
+2. **Rasio Tulangan ($\rho$)**
+   $$\rho = \frac{0.85 \cdot f'_c}{f_y} \left( 1 - \sqrt{1 - \frac{2 \cdot R_n}{0.85 \cdot f'_c}} \right)$$
+   *Jika rasio di bawah batas minimum, otomatis menggunakan $\rho_{min} = \frac{1.4}{f_y}$ (SNI).*
+
+3. **Luas Tulangan Perlu ($A_{s,req}$)**
+   $$A_{s,req} = \rho \cdot b \cdot d \quad \text{(dinyatakan dalam mm²/m)}$$
+
+4. **Kalkulasi Spasi dari Kuota Diameter ($D$)**
+   $$s = \frac{1000 \cdot \frac{1}{4} \pi \cdot D^2}{A_{s,req}}$$
+
+5. **Kalkulasi Diameter dari Spasi Target ($s$)**
+   $$D = \sqrt{\frac{4 \cdot A_{s,req} \cdot s}{1000 \cdot \pi}}$$
+   *Untuk output diameter, program otomatis mendeteksi ukuran tulangan pasaran terdekar yang lebih besar (D13, D16, D19, dll).*
+
 ---
 
 ## 🏗️ Architecture
