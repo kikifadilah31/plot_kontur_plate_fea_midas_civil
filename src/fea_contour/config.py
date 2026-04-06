@@ -41,6 +41,7 @@ PLOT_DPI_WORKER = 150
 PLOT_FIGSIZE = (14, 8)
 PLOT_CMAP = 'RdBu_r'
 CONTOUR_LEVELS = 24
+REBAR_CMAP = 'YlOrRd'
 
 # =============================================================================
 # Contour Methods

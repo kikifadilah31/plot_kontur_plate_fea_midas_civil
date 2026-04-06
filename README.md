@@ -135,6 +135,40 @@ fea-report --comb --master
 fea-report --comb --master --thickness 0.5
 ```
 
+### `fea-rebar` — Generate Rebar Analysis Plots
+
+Menghitung kebutuhan luas tulangan utama pelat (lentur) berdasarkan momen hasil FEM, lalu menghasilkan *contour plot* untuk *Spasi Tulangan* atau *Diameter Tulangan*. Sangat berguna untuk melakukan zonasi pembesian.
+
+```bash
+fea-rebar [OPTIONS]
+```
+
+| Argument | Deskripsi | Default |
+|----------|-----------|---------|
+| `--fc` | Kuat tekan beton (MPa) | `30` |
+| `--fy` | Kuat leleh baja (MPa) | `420` |
+| `--thickness` | Tebal pelat dalam meter | `0.400` |
+| `--cover` | Selimut beton bersih (mm) | `40` |
+| `--diameter` | Diameter tulangan (mm). Jika diset, output = plot **Spasi** | *(none)* |
+| `--spacing` | Spasi tulangan (mm). Jika diset, output = plot **Diameter** | `150` |
+| `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
+| `--comb` | Path ke file CSV kombinasi beban | *(none)* |
+| `--comb-select` | Wildcard filter untuk memproses kombinasi tertentu (cth: `K_1*`) | `*` |
+| `--theme` | Tema visual plot (`light` atau `dark`) | `light` |
+
+> **Perilaku Superposisi:**
+> - Jika `--comb` **tidak** diatur: Program menghitung tulangan untuk setiap Load Case Tunggal (berguna untuk beban ultimate yang sudah tergabung seperti *pilecap*).
+> - Jika `--comb` diatur: Program **hanya** menghitung tulangan untuk Kombinasi Beban yang sesuai filter.
+> - Program otomatis menghasilkan folder **Envelope_Rebar** yang berisi nilai maksimal dari seluruh load case/kombinasi yang diproses.
+
+**Contoh:**
+```bash
+# Mode Output Diameter (cari diameter tulangan terdekat jika dipasang jarak 150mm)
+fea-rebar --fc 30 --fy 420 --spacing 150 --comb input/kombinasi_beban.csv --no-mesh
+
+# Mode Output Spasi (cari jarak spasi pakai jika kita menggunakan besi D16)
+fea-rebar --fc 30 --fy 420 --diameter 16 --comb input/kombinasi_beban.csv --no-mesh --comb-select "K_1*"
+```
 ---
 
 ## 🎨 Contour Methods
