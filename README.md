@@ -13,7 +13,7 @@ Hanya butuh [uv](https://docs.astral.sh/uv/) terinstall di komputer.
 
 ```bash
 # Install permanen ke PATH
-uv tool install git+https://github.com/USERNAME/PY_PLOT_KONTUR_PLATE_MIDAS
+uv tool install git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil
 
 # Lalu jalankan dari folder yang berisi input/
 fea-plot --method average-nodal --no-mesh
@@ -23,19 +23,25 @@ fea-report --comb --master
 Atau jalankan sekali tanpa install:
 ```bash
 # Plot
-uvx --from git+https://github.com/USERNAME/PY_PLOT_KONTUR_PLATE_MIDAS fea-plot \
+uvx --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil fea-plot \
   --method all --no-mesh --comb input/kombinasi_beban.csv
 
 # Report
-uvx --from git+https://github.com/USERNAME/PY_PLOT_KONTUR_PLATE_MIDAS fea-report \
+uvx --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil fea-report \
   --comb --master --thickness 0.5
 ```
+
+> **💡 TIPS (Untuk PC Tanpa Git):**
+> Jika komputer Anda (atau rekan Anda) tidak memiliki `git` yang ter-install, ganti sumber ke file `.zip` agar tetap bisa dijalankan:
+> ```bash
+> uvx --from https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/heads/main.zip fea-plot --help
+> ```
 
 ### Cara 2: Clone dan jalankan lokal
 
 ```bash
-git clone https://github.com/USERNAME/PY_PLOT_KONTUR_PLATE_MIDAS.git
-cd PY_PLOT_KONTUR_PLATE_MIDAS
+git clone https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil.git
+cd plot_kontur_plate_fea_midas_civil
 
 # Jalankan via uv (otomatis install dependencies)
 uv run fea-plot --method average-nodal --no-mesh
@@ -45,8 +51,6 @@ uv run fea-report --comb --master
 uv run python plot_contur_fea.py --method all --no-mesh
 uv run python generate_reports.py --comb --master
 ```
-
-> **Note:** Ganti `USERNAME` dengan username GitHub Anda.
 
 ---
 
