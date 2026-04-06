@@ -225,23 +225,22 @@ $$\sigma = \frac{N}{A} - \frac{M \cdot y}{I}$$
 
 ### Perhitungan Tulangan Lentur (ACI/SNI)
 
-1. **Rasio Kuat Rencana ($R_n$)**
-   $$R_n = \frac{M_u}{\phi \cdot b \cdot d^2}$$
-   *(di mana $\phi = 0.9$ untuk lentur, $b = 1000$ mm, d = tinggi efektif)*
+1. **Tinggi Efektif ($d$)**
+   Bergantung pada lapisan tulangan. Secara standar, arah **X** diletakkan pada lapis terluar.
+   - **Arah X (Bottom/Top):** $d_x = h - t_{cc} - 0.5D$
+   - **Arah Y (Bottom/Top):** $d_y = h - t_{cc} - D - 0.5D$
 
-2. **Rasio Tulangan ($\rho$)**
-   $$\rho = \frac{0.85 \cdot f'_c}{f_y} \left( 1 - \sqrt{1 - \frac{2 \cdot R_n}{0.85 \cdot f'_c}} \right)$$
-   *Jika rasio di bawah batas minimum, otomatis menggunakan $\rho_{min} = \frac{1.4}{f_y}$ (SNI).*
+2. **Luas Tulangan Perlu ($A_{s,perlu}$)**
+   $$A_{s,perlu} = \frac{0.85 \cdot f'_c \cdot b \cdot d}{f_y} \left( 1 - \sqrt{1 - \frac{2 \cdot M_u}{\phi \cdot 0.85 \cdot f'_c \cdot b \cdot d^2}} \right)$$
+   *(di mana $\phi = 0.9$ untuk lentur, $b = 1000$ mm)*
+   > **Peringatan Sistem:** Jika nilai di dalam akar negatif, program akan melompati pelabelan karena penampang tipis / tidak mencukupi (Section Inadequate).
 
-3. **Luas Tulangan Perlu ($A_{s,req}$)**
-   $$A_{s,req} = \rho \cdot b \cdot d \quad \text{(dinyatakan dalam mm²/m)}$$
+3. **Kalkulasi Spasi dari Kuota Diameter ($D$)**
+   $$s_{calc} = \frac{(0.25 \cdot \pi \cdot D^2) \cdot 1000}{A_{s,perlu}}$$
 
-4. **Kalkulasi Spasi dari Kuota Diameter ($D$)**
-   $$s = \frac{1000 \cdot \frac{1}{4} \pi \cdot D^2}{A_{s,req}}$$
-
-5. **Kalkulasi Diameter dari Spasi Target ($s$)**
-   $$D = \sqrt{\frac{4 \cdot A_{s,req} \cdot s}{1000 \cdot \pi}}$$
-   *Untuk output diameter, program otomatis mendeteksi ukuran tulangan pasaran terdekar yang lebih besar (D13, D16, D19, dll).*
+4. **Kalkulasi Diameter dari Spasi Target ($s$)**
+   $$D_{req} = \sqrt{\frac{4 \cdot (A_{s,perlu} \cdot s / 1000)}{\pi}}$$
+   *Program kemudian memilih diameter aktual terbesar berikutnya dari standar pasaran: [13, 16, 19, 22, 25, 32].*
 
 ---
 
