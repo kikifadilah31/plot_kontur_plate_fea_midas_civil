@@ -1,4 +1,4 @@
-[project]
+up[project]
 name = "fea-contour-plotter"
 version = "1.2.0"
 description = "FEA 2D Contour Plot Generator — Midas Civil Post-Processing Tool"
