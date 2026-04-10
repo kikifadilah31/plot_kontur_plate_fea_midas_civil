@@ -4,7 +4,8 @@ Thin wrapper that imports from the fea_contour package.
 
 Usage:
     python generate_reports.py --master
-    python generate_reports.py --comb --master --thickness 0.5
+    python generate_reports.py --comb input/kombinasi_beban.csv --master --method average-nodal
+    python generate_reports.py --comb input/kombinasi_beban.csv --master --format typst
 """
 
 import sys
