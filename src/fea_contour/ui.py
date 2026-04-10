@@ -339,19 +339,20 @@ with tab_plot:
 
             # --- Multiprocess save (identical to CLI) ---
             if need_save and save_tasks:
-                from multiprocessing import Pool, cpu_count
-                n_cores = min(cpu_count(), len(save_tasks))
-                st.info(f"Saving {len(save_tasks)} plots using {n_cores} cores...")
+                from concurrent.futures import ThreadPoolExecutor
+                import os
+                n_cores = min(os.cpu_count() or 4, len(save_tasks))
+                st.info(f"Saving {len(save_tasks)} plots using {n_cores} threads...")
                 ok_count = 0
                 err_count = 0
-                with Pool(processes=n_cores, initializer=init_worker) as pool:
-                    for result in pool.imap_unordered(
-                        generate_plot_worker, save_tasks, chunksize=20,
-                    ):
+                
+                with ThreadPoolExecutor(max_workers=n_cores) as executor:
+                    for result in executor.map(generate_plot_worker, save_tasks):
                         if result['status'] == 'ok':
                             ok_count += 1
                         else:
                             err_count += 1
+                            
                 st.success(f"✅ Saved {ok_count} plots to `{out_root}`")
                 if err_count:
                     st.warning(f"⚠ {err_count} plots failed.")
@@ -661,19 +662,20 @@ with tab_rebar:
 
             # --- Multiprocess save (identical to CLI) ---
             if rb_save and rebar_save_tasks:
-                from multiprocessing import Pool, cpu_count
-                n_cores = min(cpu_count(), len(rebar_save_tasks))
-                st.info(f"Saving {len(rebar_save_tasks)} rebar plots using {n_cores} cores...")
+                from concurrent.futures import ThreadPoolExecutor
+                import os
+                n_cores = min(os.cpu_count() or 4, len(rebar_save_tasks))
+                st.info(f"Saving {len(rebar_save_tasks)} rebar plots using {n_cores} threads...")
                 ok_count = 0
                 err_count = 0
-                with Pool(processes=n_cores, initializer=init_rebar_worker) as pool:
-                    for result in pool.imap_unordered(
-                        generate_rebar_plot_worker, rebar_save_tasks, chunksize=10,
-                    ):
+                
+                with ThreadPoolExecutor(max_workers=n_cores) as executor:
+                    for result in executor.map(generate_rebar_plot_worker, rebar_save_tasks):
                         if result['status'] == 'ok':
                             ok_count += 1
                         else:
                             err_count += 1
+                            
                 st.success(f"✅ Saved {ok_count} rebar plots to `{out_root}`")
                 if err_count:
                     st.warning(f"⚠ {err_count} plots failed.")

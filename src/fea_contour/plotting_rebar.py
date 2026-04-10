@@ -22,18 +22,18 @@ from .math_utils import safe_filename
 REBAR_CMAP = 'YlOrRd'
 INADEQUATE_COLOR = '#8B008B'  # DarkMagenta for Section Inadequate zones
 
+import threading
+thread_local_rb = threading.local()
+
 # =============================================================================
 # GLOBAL WORKER VARIABLES (For Figure Recycling)
 # =============================================================================
 rebar_fig = None
 rebar_ax = None
 
-
 def init_rebar_worker():
-    """Initializer for Pool: Creates ONE figure per CPU process."""
-    global rebar_fig, rebar_ax
-    rebar_fig, rebar_ax = plt.subplots(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
-
+    """Initializer for Pool: Sets up the backend."""
+    plt.switch_backend('Agg')
 
 def generate_rebar_plot_worker(task):
     """
@@ -44,9 +44,13 @@ def generate_rebar_plot_worker(task):
          plot_label, unit_label, subtitle, load_name,
          output_folder, contour_method, show_mesh, theme, filename_tag)
     """
-    global rebar_fig, rebar_ax
-
     try:
+        if not hasattr(thread_local_rb, "fig"):
+            plt.switch_backend('Agg')
+            thread_local_rb.fig, thread_local_rb.ax = plt.subplots(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
+            
+        rebar_fig = thread_local_rb.fig
+        rebar_ax = thread_local_rb.ax
         (x, y, z, triangles, polygons, centroids,
          plot_label, unit_label, subtitle, load_name,
          output_folder, contour_method, show_mesh, theme, filename_tag) = task

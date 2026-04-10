@@ -15,29 +15,36 @@ from matplotlib.collections import PolyCollection
 from .config import PLOT_FIGSIZE, PLOT_DPI_WORKER, PLOT_DPI_SAVE, PLOT_CMAP, CONTOUR_LEVELS
 from .math_utils import safe_filename
 
+import threading
+thread_local = threading.local()
+
 # =============================================================================
 # GLOBAL WORKER VARIABLES (For Figure Recycling)
 # =============================================================================
+# Deprecated globals (kept for compatibility if needed elsewhere, but not used by worker)
 worker_fig = None
 worker_ax = None
 
-
 def init_worker():
-    """Initializer for Pool: Creates ONE figure per CPU process."""
-    global worker_fig, worker_ax
-    worker_fig, worker_ax = plt.subplots(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
-
+    """Initializer for Pool: Sets up the backend."""
+    plt.switch_backend('Agg')
 
 def generate_plot_worker(task):
     """
     Hyper-optimized plotting function with figure recycling and error handling.
 
-    Recycles worker_fig/worker_ax to avoid creating new figures per plot.
+    Recycles a THREAD-LOCAL figure to avoid creating new figures per plot,
+    allowing safe usage with ThreadPoolExecutor without race conditions.
     Returns dict with status, path, and error info.
     """
-    global worker_fig, worker_ax
-
     try:
+        # Guarantee thread-local figure exists
+        if not hasattr(thread_local, "fig"):
+            plt.switch_backend('Agg')
+            thread_local.fig, thread_local.ax = plt.subplots(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
+        
+        worker_fig = thread_local.fig
+        worker_ax = thread_local.ax
         (x, y, z, triangles, polygons, centroids,
          force_col, display_name, title_suffix, load_name,
          output_folder, contour_method, show_mesh,
