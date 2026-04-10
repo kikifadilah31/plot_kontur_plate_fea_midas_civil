@@ -47,13 +47,72 @@ def _scatter_interpolate_to_grid(x, y, z, nx=300, ny=300):
     return xi, yi, Zi
 
 
+def _get_extremes(mesh, z_values, method):
+    """Get max/min values and their (x, y) coordinates."""
+    if method == 'element-center':
+        cx = np.array([c[0] for c in mesh.centroids])
+        cy = np.array([c[1] for c in mesh.centroids])
+    else:
+        cx, cy = mesh.x, mesh.y
+
+    # Handle NaN/Inf gracefully
+    valid = np.isfinite(z_values)
+    if not np.any(valid):
+        return None
+
+    z_clean = np.where(valid, z_values, np.nan)
+    max_idx = int(np.nanargmax(z_clean))
+    min_idx = int(np.nanargmin(z_clean))
+
+    return {
+        'max_val': float(z_clean[max_idx]),
+        'min_val': float(z_clean[min_idx]),
+        'max_x': float(cx[max_idx]),
+        'max_y': float(cy[max_idx]),
+        'min_x': float(cx[min_idx]),
+        'min_y': float(cy[min_idx]),
+    }
+
+
+def _add_annotations(fig, extremes, y_range=None):
+    """Add MAX/MIN diamond markers and text annotations to a Plotly figure."""
+    if extremes is None:
+        return
+
+    mx, my = extremes['max_x'], extremes['max_y']
+    nx_, ny_ = extremes['min_x'], extremes['min_y']
+    mv, nv = extremes['max_val'], extremes['min_val']
+
+    # MAX marker (red diamond)
+    fig.add_trace(go.Scatter(
+        x=[mx], y=[my], mode='markers+text',
+        marker=dict(symbol='diamond', size=14, color='#DC143C',
+                    line=dict(width=2, color='white')),
+        text=[f'MAX: {mv:+.2f}<br>({mx:.2f}, {my:.2f})'],
+        textposition='top center',
+        textfont=dict(size=10, color='#DC143C', family='Arial Black'),
+        showlegend=False, hoverinfo='skip',
+    ))
+
+    # MIN marker (blue diamond)
+    fig.add_trace(go.Scatter(
+        x=[nx_], y=[ny_], mode='markers+text',
+        marker=dict(symbol='diamond', size=14, color='#1E90FF',
+                    line=dict(width=2, color='white')),
+        text=[f'MIN: {nv:+.2f}<br>({nx_:.2f}, {ny_:.2f})'],
+        textposition='bottom center',
+        textfont=dict(size=10, color='#1E90FF', family='Arial Black'),
+        showlegend=False, hoverinfo='skip',
+    ))
+
+
 # =============================================================================
 # Plotly Contour Generators
 # =============================================================================
 
 def generate_contour_plotly(mesh, z_values, col_name, method, colorscale='RdBu_r'):
     """
-    Generate an interactive Plotly contour figure.
+    Generate an interactive Plotly contour figure with MAX/MIN annotations.
 
     Parameters
     ----------
@@ -93,6 +152,10 @@ def generate_contour_plotly(mesh, z_values, col_name, method, colorscale='RdBu_r
         )
     ])
 
+    # Add MAX/MIN annotations
+    extremes = _get_extremes(mesh, z_values, method)
+    _add_annotations(fig, extremes)
+
     fig.update_layout(
         title=dict(text=col_name, x=0.5),
         xaxis_title='X (m)',
@@ -108,7 +171,7 @@ def generate_contour_plotly(mesh, z_values, col_name, method, colorscale='RdBu_r
 
 def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
     """
-    Generate an interactive Plotly rebar contour figure.
+    Generate an interactive Plotly rebar contour figure with MAX/MIN annotations.
 
     Parameters
     ----------
@@ -181,6 +244,10 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
                 ),
             )
         ])
+
+    # Add MAX/MIN annotations
+    extremes = _get_extremes(mesh, z_values, method)
+    _add_annotations(fig, extremes)
 
     fig.update_layout(
         title=dict(text=col_name, x=0.5),

@@ -16,5 +16,5 @@ echo.
 echo Launching FEA UI (first run may take a moment)...
 echo Close this window to stop the server.
 echo.
-uvx --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil fea-ui
+uvx --from https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/heads/main.zip fea-ui
 pause

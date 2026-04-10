@@ -472,6 +472,10 @@ with tab_rebar:
         )
         rb_is_combo = False
 
+    rb_output = st.radio(
+        "Output", ["Envelope Only", "Per Source", "Both"],
+        key='rb_output', horizontal=True,
+    )
     rb_save = st.checkbox("Save plots to output/", value=False, key='rb_save')
 
     REBAR_CASES = [
@@ -490,22 +494,20 @@ with tab_rebar:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             out_root = os.path.join(OUTPUT_FOLDER, f"rebar_{timestamp}")
 
-            progress = st.progress(0, "Analyzing rebar...")
-            total = len(rb_sources) * len(REBAR_CASES)
-            count = 0
+            show_envelope = rb_output in ("Envelope Only", "Both")
+            show_per_src = rb_output in ("Per Source", "Both")
 
+            # ── Compute per-source results ──
+            all_results = {}  # {src: {label: result_array}}
             for src in rb_sources:
-                st.subheader(src)
                 arrays = _get_arrays_for_source(src, rb_is_combo)
-                plot_cols_ui = st.columns(2)
+                src_results = {}
 
-                for case_idx, (moment_col, direction, layer, label) in enumerate(REBAR_CASES):
+                for moment_col, direction, layer, label in REBAR_CASES:
                     m_arr = arrays.get(moment_col)
                     if m_arr is None:
-                        count += 1
                         continue
 
-                    # Separate positive/negative
                     if layer == 'bottom':
                         Mu = np.where(m_arr > 0, m_arr, 0)
                     else:
@@ -515,36 +517,91 @@ with tab_rebar:
                     As = calc_as_required(Mu, fc, fy, d_eff)
 
                     if diameter_input is not None:
-                        # Mode: Input Diameter -> Output Spacing
                         result = calc_spacing_from_diameter(As, float(diameter_input))
-                        result_label = f"Spacing D{diameter_input} - {label}"
                         plot_mode = 'spacing'
                     else:
-                        # Mode: Input Spacing -> Output Diameter
                         result = calc_diameter_from_spacing(As, float(spacing_input))
-                        result_label = f"Diameter s{spacing_input} - {label}"
                         plot_mode = 'diameter'
 
-                    with plot_cols_ui[case_idx % 2]:
+                    src_results[label] = result
+
+                all_results[src] = src_results
+
+            # Determine plot_mode label
+            if diameter_input is not None:
+                mode_prefix = f"Spacing D{diameter_input}"
+                plot_mode = 'spacing'
+            else:
+                mode_prefix = f"Diameter s{spacing_input}"
+                plot_mode = 'diameter'
+
+            # ── Envelope ──
+            if show_envelope:
+                st.subheader("📐 Envelope (All Selected Sources)")
+                env_cols = st.columns(2)
+                for case_idx, (_, _, _, label) in enumerate(REBAR_CASES):
+                    # Collect results from all sources for this case
+                    case_arrays = [
+                        all_results[src][label]
+                        for src in rb_sources
+                        if label in all_results.get(src, {})
+                    ]
+                    if not case_arrays:
+                        continue
+
+                    # Envelope: element-wise max for diameter, element-wise min for spacing
+                    stacked = np.stack(case_arrays)
+                    if plot_mode == 'diameter':
+                        envelope = np.nanmax(stacked, axis=0)
+                    else:
+                        envelope = np.nanmin(stacked, axis=0)
+
+                    env_label = f"ENVELOPE {mode_prefix} - {label}"
+                    with env_cols[case_idx % 2]:
                         fig = generate_rebar_plotly(
-                            mesh, result, result_label, method, mode=plot_mode,
+                            mesh, envelope, env_label, method, mode=plot_mode,
                         )
                         st.plotly_chart(fig, use_container_width=True)
 
                         if rb_save:
-                            fname = f"rebar_{safe_filename(result_label)}.png"
-                            fpath = os.path.join(
-                                out_root, safe_filename(src), fname,
-                            )
-                            cmap_save = 'YlOrRd_r' if plot_mode == 'spacing' else 'YlOrRd'
+                            fname = f"rebar_ENVELOPE_{safe_filename(env_label)}.png"
+                            fpath = os.path.join(out_root, "Envelope_Rebar", fname)
+                            cmap_s = 'YlOrRd_r' if plot_mode == 'spacing' else 'YlOrRd'
                             save_contour_matplotlib(
-                                mesh, result, result_label, method,
-                                fpath, cmap=cmap_save,
+                                mesh, envelope, env_label, method,
+                                fpath, cmap=cmap_s,
                             )
 
-                    count += 1
-                    progress.progress(count / total)
+            # ── Per Source ──
+            if show_per_src:
+                for src in rb_sources:
+                    st.subheader(src)
+                    plot_cols_ui = st.columns(2)
 
-            progress.progress(1.0, "Done!")
+                    for case_idx, (_, _, _, label) in enumerate(REBAR_CASES):
+                        result = all_results.get(src, {}).get(label)
+                        if result is None:
+                            continue
+
+                        result_label = f"{mode_prefix} - {label}"
+                        with plot_cols_ui[case_idx % 2]:
+                            fig = generate_rebar_plotly(
+                                mesh, result, result_label, method, mode=plot_mode,
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+
+                            if rb_save:
+                                fname = f"rebar_{safe_filename(result_label)}.png"
+                                fpath = os.path.join(
+                                    out_root, safe_filename(src), fname,
+                                )
+                                cmap_s = 'YlOrRd_r' if plot_mode == 'spacing' else 'YlOrRd'
+                                save_contour_matplotlib(
+                                    mesh, result, result_label, method,
+                                    fpath, cmap=cmap_s,
+                                )
+
+            st.success("✅ Rebar analysis complete!")
             if rb_save:
-                st.success(f"Saved rebar plots to `{out_root}`")
+                st.info(f"Plots saved to `{out_root}`")
+
