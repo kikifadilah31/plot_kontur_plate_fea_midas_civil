@@ -1,5 +1,5 @@
 # FEA 2D Contour Plot Generator
-**Version 1.2.0 | Professional FEA Visualization & Reporting**
+**Version 1.3.0 | Professional FEA Visualization & Reporting**
 
 High-performance Python tool for generating FEA contour plots and comprehensive technical reports from Midas Civil (or similar) plate/shell results.
 
