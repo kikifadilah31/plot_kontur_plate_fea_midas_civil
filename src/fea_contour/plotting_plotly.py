@@ -13,6 +13,8 @@ from matplotlib.tri import Triangulation, LinearTriInterpolator
 
 from .rebar import AVAILABLE_DIAMETERS
 
+INADEQUATE_COLOR = '#8B008B'  # DarkMagenta — matches CLI
+
 
 # =============================================================================
 # Grid Interpolation Helpers
@@ -74,7 +76,7 @@ def _get_extremes(mesh, z_values, method):
     }
 
 
-def _add_annotations(fig, extremes, y_range=None):
+def _add_annotations(fig, extremes):
     """Add MAX/MIN diamond markers and text annotations to a Plotly figure."""
     if extremes is None:
         return
@@ -112,19 +114,9 @@ def _add_annotations(fig, extremes, y_range=None):
 
 def generate_contour_plotly(mesh, z_values, col_name, method, colorscale='RdBu_r'):
     """
-    Generate an interactive Plotly contour figure with MAX/MIN annotations.
-
-    Parameters
-    ----------
-    mesh : MeshTopology
-    z_values : np.ndarray
-    col_name : str
-    method : str
-    colorscale : str
-
-    Returns
-    -------
-    go.Figure
+    Generate an interactive Plotly contour figure with:
+    - Symmetric colorbar (matching CLI's vmin=-abs_max, vmax=+abs_max)
+    - MAX/MIN diamond annotations
     """
     if method == 'element-center':
         cx = np.array([c[0] for c in mesh.centroids])
@@ -135,16 +127,27 @@ def generate_contour_plotly(mesh, z_values, col_name, method, colorscale='RdBu_r
             mesh.x, mesh.y, z_values, mesh.triangles,
         )
 
+    # Symmetric colorbar — same logic as CLI plotting.py
+    z_min = float(np.nanmin(z_values))
+    z_max = float(np.nanmax(z_values))
+    z_abs_max = max(abs(z_min), abs(z_max))
+    if z_abs_max == 0:
+        z_abs_max = 1.0
+    vmin, vmax = -z_abs_max, z_abs_max
+
     fig = go.Figure(data=[
         go.Contour(
             x=xi, y=yi, z=Zi,
             colorscale=colorscale,
+            zmin=vmin, zmax=vmax,
             contours=dict(
                 coloring='heatmap',
                 showlabels=True,
                 labelfont=dict(size=8, color='white'),
             ),
-            colorbar=dict(title=dict(text=col_name, side='right')),
+            colorbar=dict(
+                title=dict(text=col_name, side='right'),
+            ),
             hovertemplate=(
                 'X: %{x:.2f} m<br>Y: %{y:.2f} m<br>'
                 'Value: %{z:.2f}<extra></extra>'
@@ -171,27 +174,26 @@ def generate_contour_plotly(mesh, z_values, col_name, method, colorscale='RdBu_r
 
 def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
     """
-    Generate an interactive Plotly rebar contour figure with MAX/MIN annotations.
-
-    Parameters
-    ----------
-    mesh : MeshTopology
-    z_values : np.ndarray
-    col_name : str
-    method : str
-    mode : str — 'diameter', 'spacing', or 'as'
-
-    Returns
-    -------
-    go.Figure
+    Generate an interactive Plotly rebar contour figure with:
+    - SECTION INADEQUATE warning for diameter > D32 (NaN values)
+    - MAX/MIN diamond annotations
+    - Discrete colorscale for diameter mode
     """
+    # Pre-process: detect NaN (section inadequate) and Inf (no rebar needed)
+    z_plot = z_values.copy().astype(float)
+    has_nan = np.any(np.isnan(z_plot))
+    n_inad = int(np.sum(np.isnan(z_plot)))
+
+    # Replace inf with 0 (no rebar needed), NaN stays for inadequate
+    z_plot[np.isinf(z_plot)] = 0.0
+
     if method == 'element-center':
         cx = np.array([c[0] for c in mesh.centroids])
         cy = np.array([c[1] for c in mesh.centroids])
-        xi, yi, Zi = _scatter_interpolate_to_grid(cx, cy, z_values)
+        xi, yi, Zi = _scatter_interpolate_to_grid(cx, cy, z_plot)
     else:
         xi, yi, Zi = _tri_interpolate_to_grid(
-            mesh.x, mesh.y, z_values, mesh.triangles,
+            mesh.x, mesh.y, z_plot, mesh.triangles,
         )
 
     if mode == 'diameter':
@@ -245,9 +247,24 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
             )
         ])
 
-    # Add MAX/MIN annotations
-    extremes = _get_extremes(mesh, z_values, method)
+    # Add MAX/MIN annotations (on cleaned data)
+    extremes = _get_extremes(mesh, z_plot, method)
     _add_annotations(fig, extremes)
+
+    # SECTION INADEQUATE badge — matching CLI
+    if has_nan and n_inad > 0:
+        fig.add_annotation(
+            text=f'⚠ SECTION INADEQUATE: {n_inad} points',
+            xref='paper', yref='paper',
+            x=0.98, y=0.02,
+            showarrow=False,
+            font=dict(size=12, color='white', family='Arial Black'),
+            bgcolor=INADEQUATE_COLOR,
+            bordercolor='white',
+            borderwidth=2,
+            borderpad=6,
+            opacity=0.9,
+        )
 
     fig.update_layout(
         title=dict(text=col_name, x=0.5),
@@ -260,63 +277,3 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
     )
 
     return fig
-
-
-# =============================================================================
-# Matplotlib Save Helper (for static PNG export)
-# =============================================================================
-
-def save_contour_matplotlib(mesh, z_values, col_name, method, output_path,
-                            show_mesh=False, theme='light', cmap='RdBu_r',
-                            levels=24):
-    """
-    Generate and save a static contour plot using Matplotlib.
-
-    Parameters
-    ----------
-    mesh : MeshTopology
-    z_values : np.ndarray
-    col_name : str
-    method : str
-    output_path : str
-    show_mesh : bool
-    theme : str
-    cmap : str
-    levels : int
-    """
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    from matplotlib.collections import PolyCollection
-
-    if theme == 'dark':
-        plt.style.use('dark_background')
-    else:
-        plt.style.use('default')
-
-    fig, ax = plt.subplots(figsize=(14, 8))
-
-    if method == 'element-center':
-        pc = PolyCollection(
-            mesh.polygons, array=z_values, cmap=cmap,
-            edgecolors='gray' if show_mesh else 'none',
-            linewidths=0.3,
-        )
-        ax.add_collection(pc)
-        ax.autoscale_view()
-        plt.colorbar(pc, ax=ax, label=col_name, shrink=0.8)
-    else:
-        tri = Triangulation(mesh.x, mesh.y, mesh.triangles)
-        tcf = ax.tricontourf(tri, z_values, levels=levels, cmap=cmap)
-        if show_mesh:
-            ax.triplot(tri, 'k-', linewidth=0.2, alpha=0.3)
-        plt.colorbar(tcf, ax=ax, label=col_name, shrink=0.8)
-
-    ax.set_xlabel('X (m)')
-    ax.set_ylabel('Y (m)')
-    ax.set_title(col_name)
-    ax.set_aspect('equal')
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    fig.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close(fig)

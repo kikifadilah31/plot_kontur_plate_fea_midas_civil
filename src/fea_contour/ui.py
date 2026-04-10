@@ -277,10 +277,8 @@ with tab_plot:
             progress = st.progress(0, "Generating plots...")
             count = 0
 
-            # Initialize matplotlib worker once for save mode
             need_save = output_mode in ("Save Only", "Display & Save")
-            if need_save:
-                init_worker()
+            save_tasks = []  # collect for multiprocessing
 
             for src in selected_sources:
                 st.subheader(src)
@@ -318,7 +316,6 @@ with tab_plot:
                             st.plotly_chart(fig, use_container_width=True)
 
                         if need_save:
-                            # Build axial/moment arrays for stress annotations
                             axial_arr = moment_arr = None
                             if col_name in STRESS_PAIRS:
                                 f_col, m_col = STRESS_PAIRS[col_name]
@@ -330,24 +327,36 @@ with tab_plot:
                                    else "")
                             load_label = f"Comb: {src}" if is_combo else src
 
-                            task = (
+                            save_tasks.append((
                                 x_w, y_w, z, tris_w, polys_w, cents_w,
                                 col_name, col_name, suf, load_label,
                                 load_folder, method, show_mesh,
                                 axial_arr, moment_arr, theme,
-                            )
-                            result = generate_plot_worker(task)
-                            if result['status'] == 'ok':
-                                st.caption(f"✅ Saved: `{result['path']}`")
-                            else:
-                                st.error(f"❌ {result.get('error', 'Unknown error')}")
+                            ))
 
                     count += 1
                     progress.progress(count / total)
 
+            # --- Multiprocess save (identical to CLI) ---
+            if need_save and save_tasks:
+                from multiprocessing import Pool, cpu_count
+                n_cores = min(cpu_count(), len(save_tasks))
+                st.info(f"Saving {len(save_tasks)} plots using {n_cores} cores...")
+                ok_count = 0
+                err_count = 0
+                with Pool(processes=n_cores, initializer=init_worker) as pool:
+                    for result in pool.imap_unordered(
+                        generate_plot_worker, save_tasks, chunksize=20,
+                    ):
+                        if result['status'] == 'ok':
+                            ok_count += 1
+                        else:
+                            err_count += 1
+                st.success(f"✅ Saved {ok_count} plots to `{out_root}`")
+                if err_count:
+                    st.warning(f"⚠ {err_count} plots failed.")
+
             progress.progress(1.0, "Done!")
-            if need_save:
-                st.success(f"Saved {count} plots to `{out_root}`")
 
 
 # ─────────────── TAB 2: Report ───────────────
@@ -528,10 +537,6 @@ with tab_rebar:
             show_envelope = rb_output in ("Envelope Only", "Both")
             show_per_src = rb_output in ("Per Source", "Both")
 
-            # Init MPL worker if saving
-            if rb_save:
-                init_rebar_worker()
-
             # Prepare mesh data for worker tuple
             if method == 'element-center':
                 x_w, y_w, tris_w = None, None, None
@@ -540,8 +545,12 @@ with tab_rebar:
                 x_w, y_w, tris_w = mesh.x, mesh.y, mesh.triangles
                 polys_w, cents_w = None, None
 
+            show_mesh_rb = False
+            theme_rb = 'light'
+            rebar_save_tasks = []  # collect for multiprocessing
+
             # ── Compute per-source results ──
-            all_results = {}  # {src: {label: (result_array, As_array)}}
+            all_results = {}
             for src in rb_sources:
                 arrays = _get_arrays_for_source(src, rb_is_combo)
                 src_results = {}
@@ -580,18 +589,7 @@ with tab_rebar:
                 plot_mode = 'diameter'
                 unit_label = 'mm'
 
-            def _save_rebar(z_arr, plot_label, subtitle_text, load_name, out_folder, tag):
-                """Build and run a rebar plot worker task."""
-                os.makedirs(out_folder, exist_ok=True)
-                task = (
-                    x_w, y_w, z_arr, tris_w, polys_w, cents_w,
-                    plot_label, unit_label, subtitle_text, load_name,
-                    out_folder, method, show_mesh_rb, theme_rb, tag,
-                )
-                return generate_rebar_plot_worker(task)
-
-            show_mesh_rb = False  # rebar plots typically no mesh
-            theme_rb = 'light'
+            subtitle = f"h={h_mm:.0f}mm | fc={fc} | fy={fy} | cover={cover}mm"
 
             # ── Envelope ──
             if show_envelope:
@@ -621,14 +619,14 @@ with tab_rebar:
 
                         if rb_save:
                             env_folder = os.path.join(out_root, "Envelope_Rebar")
-                            res = _save_rebar(
-                                envelope, env_label,
-                                f"h={h_mm:.0f}mm | fc={fc} | fy={fy} | cover={cover}mm",
-                                "Envelope", env_folder,
+                            os.makedirs(env_folder, exist_ok=True)
+                            rebar_save_tasks.append((
+                                x_w, y_w, envelope, tris_w, polys_w, cents_w,
+                                env_label, unit_label, subtitle,
+                                "Envelope", env_folder, method,
+                                show_mesh_rb, theme_rb,
                                 f"ENVELOPE_{safe_filename(env_label)}",
-                            )
-                            if res['status'] == 'ok':
-                                st.caption(f"✅ `{res['path']}`")
+                            ))
 
             # ── Per Source ──
             if show_per_src:
@@ -652,16 +650,32 @@ with tab_rebar:
                                 src_folder = os.path.join(
                                     out_root, safe_filename(src),
                                 )
-                                res = _save_rebar(
-                                    result, result_label,
-                                    f"h={h_mm:.0f}mm | fc={fc} | fy={fy} | cover={cover}mm",
-                                    src, src_folder,
+                                os.makedirs(src_folder, exist_ok=True)
+                                rebar_save_tasks.append((
+                                    x_w, y_w, result, tris_w, polys_w, cents_w,
+                                    result_label, unit_label, subtitle,
+                                    src, src_folder, method,
+                                    show_mesh_rb, theme_rb,
                                     safe_filename(result_label),
-                                )
-                                if res['status'] == 'ok':
-                                    st.caption(f"✅ `{res['path']}`")
+                                ))
+
+            # --- Multiprocess save (identical to CLI) ---
+            if rb_save and rebar_save_tasks:
+                from multiprocessing import Pool, cpu_count
+                n_cores = min(cpu_count(), len(rebar_save_tasks))
+                st.info(f"Saving {len(rebar_save_tasks)} rebar plots using {n_cores} cores...")
+                ok_count = 0
+                err_count = 0
+                with Pool(processes=n_cores, initializer=init_rebar_worker) as pool:
+                    for result in pool.imap_unordered(
+                        generate_rebar_plot_worker, rebar_save_tasks, chunksize=10,
+                    ):
+                        if result['status'] == 'ok':
+                            ok_count += 1
+                        else:
+                            err_count += 1
+                st.success(f"✅ Saved {ok_count} rebar plots to `{out_root}`")
+                if err_count:
+                    st.warning(f"⚠ {err_count} plots failed.")
 
             st.success("✅ Rebar analysis complete!")
-            if rb_save:
-                st.info(f"Plots saved to `{out_root}`")
-
