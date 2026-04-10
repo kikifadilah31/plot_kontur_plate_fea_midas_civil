@@ -1,5 +1,5 @@
 # FEA 2D Contour Plot Generator
-**Version 1.4.0 | Professional FEA Visualization & Reporting**
+**Version 1.5.0 | Professional FEA Visualization & Reporting**
 
 High-performance Python tool for generating FEA contour plots and comprehensive technical reports from Midas Civil (or similar) plate/shell results.
 
@@ -188,10 +188,11 @@ fea-ui    # Membuka browser otomatis ke http://localhost:8501
 
 Atau tanpa install, download `run_fea.bat` dari [GitHub Releases](https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/releases), lalu double-click di folder kerja.
 
-**Fitur UI:**
-- **📊 Contour Plot** — Display Only / Save Only / Display & Save
-- **📋 Report** — Generate MD atau Typst, preview langsung di browser
-- **🧮 Rebar Analysis** — Zonasi diameter/spasi tulangan interaktif
+**Fitur UI (v1.5.0):**
+- **📊 Contour Plot** — Display Only / Save Only / Display & Save. Kini dengan **Symmetric Colorbar** (skala seimbang nilai +/-).
+- **📋 Report** — Generate MD atau Typst, preview langsung di browser.
+- **🧮 Rebar Analysis** — Zonasi diameter/spasi tulangan interaktif dengan badge **SECTION INADEQUATE** otomatis jika penampang tidak kuat.
+- **🛡️ Secure Sequential Save** — Mesin penyimpanan gambar yang telah dioptimalkan untuk Windows agar tidak crash/error saat export masal.
 
 ---
 
@@ -257,7 +258,7 @@ $$\sigma = \frac{N}{A} - \frac{M \cdot y}{I}$$
 2. **Luas Tulangan Perlu ($A_{s,perlu}$)**
    $$A_{s,perlu} = \frac{0.85 \cdot f'_c \cdot b \cdot d}{f_y} \left( 1 - \sqrt{1 - \frac{2 \cdot M_u}{\phi \cdot 0.85 \cdot f'_c \cdot b \cdot d^2}} \right)$$
    *(di mana $\phi = 0.9$ untuk lentur, $b = 1000$ mm)*
-   > **Peringatan Sistem:** Jika nilai di dalam akar negatif, program akan melompati pelabelan karena penampang tipis / tidak mencukupi (Section Inadequate).
+   > **Peringatan Sistem (v1.5.0):** Jika nilai di dalam akar negatif atau diameter perlu > D32, program akan memberikan label **SECTION INADEQUATE** (Warna Magenta/Ungu) pada plot untuk mempermudah identifikasi zona gagal.
 
 3. **Kalkulasi Spasi dari Kuota Diameter ($D$)**
    $$s_{calc} = \frac{(0.25 \cdot \pi \cdot D^2) \cdot 1000}{A_{s,perlu}}$$
@@ -329,4 +330,4 @@ Aggregasi global dari semua load case dan kombinasi:
 ---
 
 **License:** MIT  
-**Version:** 1.0.0
+**Version:** 1.5.0
