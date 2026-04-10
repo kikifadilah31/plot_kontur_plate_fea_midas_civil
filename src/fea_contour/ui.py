@@ -37,8 +37,9 @@ from fea_contour.rebar import (
 )
 from fea_contour.plotting_plotly import (
     generate_contour_plotly, generate_rebar_plotly,
-    save_contour_matplotlib,
 )
+from fea_contour.plotting import init_worker, generate_plot_worker
+from fea_contour.plotting_rebar import init_rebar_worker, generate_rebar_plot_worker
 
 
 # =============================================================================
@@ -276,46 +277,76 @@ with tab_plot:
             progress = st.progress(0, "Generating plots...")
             count = 0
 
+            # Initialize matplotlib worker once for save mode
+            need_save = output_mode in ("Save Only", "Display & Save")
+            if need_save:
+                init_worker()
+
             for src in selected_sources:
                 st.subheader(src)
-                arrays = _get_arrays_for_source(
-                    src, is_combo=(use_combos_plot and combos),
-                )
+                is_combo = use_combos_plot and bool(combos)
+                arrays = _get_arrays_for_source(src, is_combo)
                 _add_stress_arrays(arrays, thickness)
 
-                plot_cols = st.columns(2)
+                # Prepare mesh data for the worker tuple
+                if method == 'element-center':
+                    x_w, y_w, tris_w = None, None, None
+                    polys_w, cents_w = mesh.polygons, mesh.centroids
+                else:
+                    x_w, y_w, tris_w = mesh.x, mesh.y, mesh.triangles
+                    polys_w, cents_w = None, None
+
+                src_folder = safe_filename(src)
+                load_folder = os.path.join(
+                    out_root, f"Method_{safe_filename(method)}", src_folder,
+                )
+                if need_save:
+                    os.makedirs(load_folder, exist_ok=True)
+
+                plot_cols_ui = st.columns(2)
                 for i, col_name in enumerate(selected_cols):
                     z = arrays.get(col_name)
                     if z is None:
                         count += 1
                         continue
 
-                    with plot_cols[i % 2]:
+                    with plot_cols_ui[i % 2]:
                         if output_mode in ("Display Only", "Display & Save"):
                             fig = generate_contour_plotly(
                                 mesh, z, col_name, method,
                             )
                             st.plotly_chart(fig, use_container_width=True)
 
-                        if output_mode in ("Save Only", "Display & Save"):
-                            src_folder = safe_filename(src)
-                            fname = f"contour_{safe_filename(col_name)}.png"
-                            fpath = os.path.join(
-                                out_root, f"Method_{safe_filename(method)}",
-                                src_folder, fname,
+                        if need_save:
+                            # Build axial/moment arrays for stress annotations
+                            axial_arr = moment_arr = None
+                            if col_name in STRESS_PAIRS:
+                                f_col, m_col = STRESS_PAIRS[col_name]
+                                axial_arr = arrays.get(f_col)
+                                moment_arr = arrays.get(m_col)
+
+                            suf = ("(Top Fiber)" if "Top" in col_name
+                                   else "(Bottom Fiber)" if "Bottom" in col_name
+                                   else "")
+                            load_label = f"Comb: {src}" if is_combo else src
+
+                            task = (
+                                x_w, y_w, z, tris_w, polys_w, cents_w,
+                                col_name, col_name, suf, load_label,
+                                load_folder, method, show_mesh,
+                                axial_arr, moment_arr, theme,
                             )
-                            save_contour_matplotlib(
-                                mesh, z, col_name, method,
-                                fpath, show_mesh, theme,
-                            )
-                            if output_mode == "Save Only":
-                                st.caption(f"Saved: `{fpath}`")
+                            result = generate_plot_worker(task)
+                            if result['status'] == 'ok':
+                                st.caption(f"✅ Saved: `{result['path']}`")
+                            else:
+                                st.error(f"❌ {result.get('error', 'Unknown error')}")
 
                     count += 1
                     progress.progress(count / total)
 
             progress.progress(1.0, "Done!")
-            if output_mode in ("Save Only", "Display & Save"):
+            if need_save:
                 st.success(f"Saved {count} plots to `{out_root}`")
 
 
@@ -497,8 +528,20 @@ with tab_rebar:
             show_envelope = rb_output in ("Envelope Only", "Both")
             show_per_src = rb_output in ("Per Source", "Both")
 
+            # Init MPL worker if saving
+            if rb_save:
+                init_rebar_worker()
+
+            # Prepare mesh data for worker tuple
+            if method == 'element-center':
+                x_w, y_w, tris_w = None, None, None
+                polys_w, cents_w = mesh.polygons, mesh.centroids
+            else:
+                x_w, y_w, tris_w = mesh.x, mesh.y, mesh.triangles
+                polys_w, cents_w = None, None
+
             # ── Compute per-source results ──
-            all_results = {}  # {src: {label: result_array}}
+            all_results = {}  # {src: {label: (result_array, As_array)}}
             for src in rb_sources:
                 arrays = _get_arrays_for_source(src, rb_is_combo)
                 src_results = {}
@@ -531,16 +574,30 @@ with tab_rebar:
             if diameter_input is not None:
                 mode_prefix = f"Spacing D{diameter_input}"
                 plot_mode = 'spacing'
+                unit_label = 'mm'
             else:
                 mode_prefix = f"Diameter s{spacing_input}"
                 plot_mode = 'diameter'
+                unit_label = 'mm'
+
+            def _save_rebar(z_arr, plot_label, subtitle_text, load_name, out_folder, tag):
+                """Build and run a rebar plot worker task."""
+                os.makedirs(out_folder, exist_ok=True)
+                task = (
+                    x_w, y_w, z_arr, tris_w, polys_w, cents_w,
+                    plot_label, unit_label, subtitle_text, load_name,
+                    out_folder, method, show_mesh_rb, theme_rb, tag,
+                )
+                return generate_rebar_plot_worker(task)
+
+            show_mesh_rb = False  # rebar plots typically no mesh
+            theme_rb = 'light'
 
             # ── Envelope ──
             if show_envelope:
                 st.subheader("📐 Envelope (All Selected Sources)")
                 env_cols = st.columns(2)
                 for case_idx, (_, _, _, label) in enumerate(REBAR_CASES):
-                    # Collect results from all sources for this case
                     case_arrays = [
                         all_results[src][label]
                         for src in rb_sources
@@ -549,7 +606,6 @@ with tab_rebar:
                     if not case_arrays:
                         continue
 
-                    # Envelope: element-wise max for diameter, element-wise min for spacing
                     stacked = np.stack(case_arrays)
                     if plot_mode == 'diameter':
                         envelope = np.nanmax(stacked, axis=0)
@@ -564,13 +620,15 @@ with tab_rebar:
                         st.plotly_chart(fig, use_container_width=True)
 
                         if rb_save:
-                            fname = f"rebar_ENVELOPE_{safe_filename(env_label)}.png"
-                            fpath = os.path.join(out_root, "Envelope_Rebar", fname)
-                            cmap_s = 'YlOrRd_r' if plot_mode == 'spacing' else 'YlOrRd'
-                            save_contour_matplotlib(
-                                mesh, envelope, env_label, method,
-                                fpath, cmap=cmap_s,
+                            env_folder = os.path.join(out_root, "Envelope_Rebar")
+                            res = _save_rebar(
+                                envelope, env_label,
+                                f"h={h_mm:.0f}mm | fc={fc} | fy={fy} | cover={cover}mm",
+                                "Envelope", env_folder,
+                                f"ENVELOPE_{safe_filename(env_label)}",
                             )
+                            if res['status'] == 'ok':
+                                st.caption(f"✅ `{res['path']}`")
 
             # ── Per Source ──
             if show_per_src:
@@ -591,15 +649,17 @@ with tab_rebar:
                             st.plotly_chart(fig, use_container_width=True)
 
                             if rb_save:
-                                fname = f"rebar_{safe_filename(result_label)}.png"
-                                fpath = os.path.join(
-                                    out_root, safe_filename(src), fname,
+                                src_folder = os.path.join(
+                                    out_root, safe_filename(src),
                                 )
-                                cmap_s = 'YlOrRd_r' if plot_mode == 'spacing' else 'YlOrRd'
-                                save_contour_matplotlib(
-                                    mesh, result, result_label, method,
-                                    fpath, cmap=cmap_s,
+                                res = _save_rebar(
+                                    result, result_label,
+                                    f"h={h_mm:.0f}mm | fc={fc} | fy={fy} | cover={cover}mm",
+                                    src, src_folder,
+                                    safe_filename(result_label),
                                 )
+                                if res['status'] == 'ok':
+                                    st.caption(f"✅ `{res['path']}`")
 
             st.success("✅ Rebar analysis complete!")
             if rb_save:
