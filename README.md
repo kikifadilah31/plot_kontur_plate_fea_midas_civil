@@ -68,7 +68,7 @@ uv run python generate_reports.py --master --comb input/kombinasi_beban.csv
 
 ## 📂 Input Data Structure
 
-Siapkan file CSV di folder `input/` pada working directory:
+Siapkan file CSV di folder `input/` pada working directory (atau copy dari salah satu case di folder `example_data_input/` jika Anda ingin melakukan test):
 
 | File | Deskripsi | Kolom Utama |
 |------|-----------|-------------|
@@ -76,6 +76,8 @@ Siapkan file CSV di folder `input/` pada working directory:
 | `connectivity_data.csv` | Konektivitas elemen | iEL, 1, 2, 3, 4 |
 | `gaya_elemen_per_load_case.csv` | Gaya/momen per elemen | Elem, Load, Node, Forces... |
 | `kombinasi_beban.csv` | Definisi kombinasi beban | Name, Active, Case 1, Factor 1, ... |
+
+> **💡 Note:** Folder `example_data_input/` disertakan dalam repository ini agar Anda dapat langsung melakukan test drive. Cukup copy CSV dari subfolder yang ada (misal `example_1`) lalu upload di UI atau letakkan di `input/` untuk penggunaan CLI.
 
 ---
 
