@@ -10,6 +10,10 @@ matplotlib.use('Agg')  # CRITICAL: Must be before pyplot import
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.cm as cm
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.collections import PolyCollection
 
 from .config import PLOT_FIGSIZE, PLOT_DPI_WORKER, PLOT_DPI_SAVE, PLOT_CMAP, CONTOUR_LEVELS
@@ -40,8 +44,11 @@ def generate_plot_worker(task):
     try:
         # Guarantee thread-local figure exists
         if not hasattr(thread_local, "fig"):
-            plt.switch_backend('Agg')
-            thread_local.fig, thread_local.ax = plt.subplots(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
+            # Use strictly Object-Oriented API to prevent pyplot state-machine crashes in Streamlit multithreading
+            fig = Figure(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
+            FigureCanvasAgg(fig)
+            thread_local.fig = fig
+            thread_local.ax = fig.add_subplot(111)
         
         worker_fig = thread_local.fig
         worker_ax = thread_local.ax
@@ -80,10 +87,14 @@ def generate_plot_worker(task):
         if vmin == vmax:
             vmin, vmax = -1, 1
 
-        norm = plt.Normalize(vmin=vmin, vmax=vmax)
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         levels = np.linspace(vmin, vmax, CONTOUR_LEVELS + 1)
         cmap_name = 'seismic' if is_dark else PLOT_CMAP
-        cmap = plt.get_cmap(cmap_name, CONTOUR_LEVELS)
+        
+        try:
+            cmap = matplotlib.colormaps[cmap_name].resampled(CONTOUR_LEVELS)
+        except AttributeError:
+            cmap = cm.get_cmap(cmap_name, CONTOUR_LEVELS)
 
         max_idx, min_idx = np.argmax(z), np.argmin(z)
         max_val, min_val = z[max_idx], z[min_idx]

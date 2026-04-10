@@ -7,10 +7,14 @@ Handles NaN masking for Section Inadequate zones.
 import os
 
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg')  # CRITICAL: Must be before pyplot import
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.cm as cm
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.collections import PolyCollection
 
 from .config import PLOT_FIGSIZE, PLOT_DPI_WORKER, PLOT_DPI_SAVE, CONTOUR_LEVELS
@@ -46,8 +50,11 @@ def generate_rebar_plot_worker(task):
     """
     try:
         if not hasattr(thread_local_rb, "fig"):
-            plt.switch_backend('Agg')
-            thread_local_rb.fig, thread_local_rb.ax = plt.subplots(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
+            # Use strictly Object-Oriented API to prevent pyplot state-machine crashes in Streamlit multithreading
+            fig = Figure(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
+            FigureCanvasAgg(fig)
+            thread_local_rb.fig = fig
+            thread_local_rb.ax = fig.add_subplot(111)
             
         rebar_fig = thread_local_rb.fig
         rebar_ax = thread_local_rb.ax
@@ -109,15 +116,23 @@ def generate_rebar_plot_worker(task):
             # Boundaries: [0, 13, 16, 19, 22, 25, 32, 35(overflow)]
             boundaries = [0] + list(AVAIL_D) + [AVAIL_D[-1] + 3]
             n_bins = len(boundaries) - 1
-            base_cmap = plt.get_cmap('YlOrRd', n_bins)
-            colors = [base_cmap(i / (n_bins - 1)) for i in range(n_bins)]
-            cmap = ListedColormap(colors)
-            norm = BoundaryNorm(boundaries, cmap.N)
+            try:
+                base_cmap = matplotlib.colormaps['YlOrRd'].resampled(n_bins)
+            except AttributeError:
+                base_cmap = cm.get_cmap('YlOrRd', n_bins)
+            
+            cmap_colors = base_cmap(np.linspace(0, 1, n_bins))
+            cmap_colors[-1] = mcolors.to_rgba(INADEQUATE_COLOR)
+            cmap = mcolors.ListedColormap(cmap_colors)
+            norm = mcolors.BoundaryNorm(boundaries, cmap.N)
             levels = boundaries
         else:
-            norm = plt.Normalize(vmin=vmin, vmax=vmax)
+            try:
+                cmap = matplotlib.colormaps[REBAR_CMAP].resampled(CONTOUR_LEVELS)
+            except AttributeError:
+                cmap = cm.get_cmap(REBAR_CMAP, CONTOUR_LEVELS)
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
             levels = np.linspace(vmin, vmax, CONTOUR_LEVELS + 1)
-            cmap = plt.get_cmap(REBAR_CMAP, CONTOUR_LEVELS)
 
         max_idx = np.argmax(z_plot)
         max_val = z_plot[max_idx]
