@@ -17,7 +17,7 @@ uv tool install git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas
 
 # Lalu jalankan dari folder yang berisi input/
 fea-plot --method average-nodal --no-mesh
-fea-report --comb --master
+fea-report --master --comb input/kombinasi_beban.csv
 ```
 
 Atau jalankan sekali tanpa install:
@@ -28,7 +28,7 @@ uvx --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civi
 
 # Report
 uvx --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil fea-report \
-  --comb --master --thickness 0.5
+  --master --comb input/kombinasi_beban.csv --thickness 0.5
 ```
 
 > **💡 TIPS (Untuk PC Tanpa Git):**
@@ -45,11 +45,11 @@ cd plot_kontur_plate_fea_midas_civil
 
 # Jalankan via uv (otomatis install dependencies)
 uv run fea-plot --method average-nodal --no-mesh
-uv run fea-report --comb --master
+uv run fea-report --master --comb input/kombinasi_beban.csv
 
 # Atau cara tradisional
 uv run python plot_contur_fea.py --method all --no-mesh
-uv run python generate_reports.py --comb --master
+uv run python generate_reports.py --master --comb input/kombinasi_beban.csv
 ```
 
 ---
@@ -119,20 +119,27 @@ fea-report [OPTIONS]
 
 | Argument | Deskripsi | Default |
 |----------|-----------|---------|
-| `--comb` | Sertakan kombinasi beban | `False` |
+| `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
+| `--format` | Format output (`md` atau `typst`) | `md` |
+| `--comb` | Path ke CSV kombinasi beban | *(none)* |
+| `--comb-select` | Wildcard filter untuk kombinasi (cth: `K_1*`) | `*` |
 | `--master` | Generate Master Summary | `False` |
 | `--thickness` | Tebal pelat dalam meter | `0.400` |
-| `--gaya` | Path ke CSV gaya/momen | `input/gaya_elemen_per_load_case.csv` |
-| `--kombinasi` | Path ke CSV kombinasi | `input/kombinasi_beban.csv` |
+| `--kordinat` | Path ke CSV koordinat | *(auto-detect)* |
+| `--connectivity` | Path ke CSV konektivitas | *(auto-detect)* |
+| `--gaya` | Path ke CSV gaya/momen | *(auto-detect)* |
 | `--output` | Folder output | `output` |
 
 **Contoh:**
 ```bash
-# Full report dengan kombinasi + master summary
-fea-report --comb --master
+# Markdown (default) — konsisten dengan interpolasi mesh
+fea-report --master --comb input/kombinasi_beban.csv
 
-# Custom thickness
-fea-report --comb --master --thickness 0.5
+# Typst output — siap di-compile
+fea-report --master --comb input/kombinasi_beban.csv --format typst
+
+# Filter kombinasi & method tertentu
+fea-report --method element-center --comb input/kombinasi_beban.csv --comb-select "K_1*" --format typst
 ```
 
 ### `fea-rebar` — Generate Rebar Analysis Plots
