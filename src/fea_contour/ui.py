@@ -337,21 +337,22 @@ with tab_plot:
                     count += 1
                     progress.progress(count / total)
 
-            # --- Multiprocess save (identical to CLI) ---
+            # --- Process saves safely in main thread ---
             if need_save and save_tasks:
-                from concurrent.futures import ThreadPoolExecutor
-                import os
-                n_cores = min(os.cpu_count() or 4, len(save_tasks))
-                st.info(f"Saving {len(save_tasks)} plots using {n_cores} threads...")
+                st.info(f"Saving {len(save_tasks)} plots safely...")
                 ok_count = 0
                 err_count = 0
                 
-                with ThreadPoolExecutor(max_workers=n_cores) as executor:
-                    for result in executor.map(generate_plot_worker, save_tasks):
-                        if result['status'] == 'ok':
-                            ok_count += 1
-                        else:
-                            err_count += 1
+                # Sequential saving prevents Streamlit Tornado from starving and crashing
+                for i, task in enumerate(save_tasks):
+                    result = generate_plot_worker(task)
+                    if result['status'] == 'ok':
+                        ok_count += 1
+                    else:
+                        err_count += 1
+                    
+                    # Update progress visually to keep UI alive
+                    progress.progress((i + 1) / len(save_tasks), f"Saving plot {i + 1} of {len(save_tasks)}...")
                             
                 st.success(f"✅ Saved {ok_count} plots to `{out_root}`")
                 if err_count:
@@ -660,21 +661,22 @@ with tab_rebar:
                                     safe_filename(result_label),
                                 ))
 
-            # --- Multiprocess save (identical to CLI) ---
+            # --- Process saves safely in main thread ---
             if rb_save and rebar_save_tasks:
-                from concurrent.futures import ThreadPoolExecutor
-                import os
-                n_cores = min(os.cpu_count() or 4, len(rebar_save_tasks))
-                st.info(f"Saving {len(rebar_save_tasks)} rebar plots using {n_cores} threads...")
+                st.info(f"Saving {len(rebar_save_tasks)} rebar plots safely...")
                 ok_count = 0
                 err_count = 0
                 
-                with ThreadPoolExecutor(max_workers=n_cores) as executor:
-                    for result in executor.map(generate_rebar_plot_worker, rebar_save_tasks):
-                        if result['status'] == 'ok':
-                            ok_count += 1
-                        else:
-                            err_count += 1
+                # Sequential saving prevents Streamlit Tornado from starving and crashing
+                rb_prog = st.progress(0, "Saving rebar plots...")
+                for i, task in enumerate(rebar_save_tasks):
+                    result = generate_rebar_plot_worker(task)
+                    if result['status'] == 'ok':
+                        ok_count += 1
+                    else:
+                        err_count += 1
+                    
+                    rb_prog.progress((i + 1) / len(rebar_save_tasks), f"Saving plot {i + 1} of {len(rebar_save_tasks)}...")
                             
                 st.success(f"✅ Saved {ok_count} rebar plots to `{out_root}`")
                 if err_count:
