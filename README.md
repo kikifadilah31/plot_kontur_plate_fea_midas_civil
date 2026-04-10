@@ -176,6 +176,21 @@ fea-rebar --fc 30 --fy 420 --spacing 150 --comb input/kombinasi_beban.csv --no-m
 # Mode Output Spasi (cari jarak spasi pakai jika kita menggunakan besi D16)
 fea-rebar --fc 30 --fy 420 --diameter 16 --comb input/kombinasi_beban.csv --no-mesh --comb-select "K_1*"
 ```
+### `fea-ui` — Interactive Web UI (Dashboard)
+
+Antarmuka grafis berbasis browser. User cukup **drag-drop CSV** — tidak perlu mengetik perintah CLI. Menggunakan **Plotly** interaktif (zoom, pan, hover) untuk display, dan **Matplotlib** untuk save PNG.
+
+```bash
+fea-ui    # Membuka browser otomatis ke http://localhost:8501
+```
+
+Atau tanpa install, download `run_fea.bat` dari [GitHub Releases](https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/releases), lalu double-click di folder kerja.
+
+**Fitur UI:**
+- **📊 Contour Plot** — Display Only / Save Only / Display & Save
+- **📋 Report** — Generate MD atau Typst, preview langsung di browser
+- **🧮 Rebar Analysis** — Zonasi diameter/spasi tulangan interaktif
+
 ---
 
 ## 🎨 Contour Methods
