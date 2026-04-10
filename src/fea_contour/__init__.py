@@ -3,4 +3,4 @@ FEA Contour Plot Generator — Modular Package
 Post-processing tool for Midas Civil plate/shell FEA results.
 """
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
