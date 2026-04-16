@@ -246,12 +246,6 @@ def generate_rebar_plot_worker(task):
                           lw=1.5, alpha=0.9),
             )
 
-        # Watermark
-        rebar_fig.text(
-            0.01, 0.02, f'FEA Rebar Plotter | {theme.upper()} THEME',
-            color=text_col, alpha=0.4, fontsize=9, fontweight='bold',
-        )
-
         # --- Axes styling ---
         rebar_ax.set_aspect('equal')
         rebar_ax.set_xlabel('X Coordinate (m)', fontsize=12, fontweight='bold', color=text_col)
