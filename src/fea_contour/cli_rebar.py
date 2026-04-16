@@ -156,7 +156,7 @@ def _build_shear_tasks(
     tasks.append((
         x, y, Av_s, triangles, polygons, centroids,
         f'Av/s Geser — {dir_label}',
-        'mm\u00b2/mm',
+        '(mm\u00b2/mm) per pias 1m',
         f'(Method: {method.replace("-", " ").title()} | dv = {dv:.0f} mm)',
         load_name, output_folder, method, show_mesh, theme,
         f'Avs_{case_label}',
@@ -535,7 +535,7 @@ def main():
                 all_tasks.append((
                     x, y, Av_s_env, tris, polys, cents,
                     f'ENVELOPE Av/s Geser — {dir_label}',
-                    'mm²/mm',
+                    '(mm²/mm) per pias 1m',
                     f'(Maximum dari seluruh kasus | dv = {dv:.0f} mm)',
                     'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_Avs_{case_label}',

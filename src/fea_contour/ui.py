@@ -813,7 +813,7 @@ with tab_rebar:
                                 os.makedirs(env_folder, exist_ok=True)
                                 shear_save_tasks.append((
                                     x_w, y_w, avs_env, tris_w, polys_w, cents_w,
-                                    avs_label, 'mm²/mm', subtitle_sh,
+                                    avs_label, '(mm²/mm) per pias 1m', subtitle_sh,
                                     "Envelope", env_folder, method,
                                     show_mesh_sh, theme_sh,
                                     f"ENVELOPE_{safe_filename(avs_label)}",
@@ -860,7 +860,7 @@ with tab_rebar:
                                     os.makedirs(src_folder, exist_ok=True)
                                     shear_save_tasks.append((
                                         x_w, y_w, res['avs'], tris_w, polys_w, cents_w,
-                                        avs_label, 'mm²/mm', subtitle_sh,
+                                        avs_label, '(mm²/mm) per pias 1m', subtitle_sh,
                                         src, src_folder, method,
                                         show_mesh_sh, theme_sh,
                                         safe_filename(avs_label),
