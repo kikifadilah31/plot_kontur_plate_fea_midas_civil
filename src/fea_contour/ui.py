@@ -496,11 +496,18 @@ with tab_rebar:
         )
         rb_is_combo = False
 
+    st.markdown("#### Mode & Appearance")
+    col_out1, col_out2 = st.columns(2)
+    with col_out1:
+        rb_output_mode = st.radio("Output Mode", ["Display Only", "Save Only", "Display & Save"],
+                                  horizontal=True, key="rb_output_mode")
+    with col_out2:
+        show_mesh_rb_ui = st.checkbox("🕸️ Show Mesh/Wireframe (for Save)", value=True, key="rb_mesh")
+
     rb_output = st.radio(
-        "Output", ["Envelope Only", "Per Source", "Both"],
+        "Calculation Scope", ["Envelope Only", "Per Source", "Both"],
         key='rb_output', horizontal=True,
     )
-    rb_save = st.checkbox("Save plots to output/", value=False, key='rb_save')
 
     # ── Sub-tabs: Lentur vs Geser ──
     sub_flexure, sub_shear = st.tabs(["💪 Lentur (Flexure)", "✂️ Geser (Shear)"])
@@ -554,7 +561,9 @@ with tab_rebar:
                     x_w, y_w, tris_w = mesh.x, mesh.y, mesh.triangles
                     polys_w, cents_w = None, None
 
-                show_mesh_rb = False
+                show_mesh_rb = show_mesh_rb_ui
+                rb_display = rb_output_mode in ("Display Only", "Display & Save")
+                rb_save = rb_output_mode in ("Save Only", "Display & Save")
                 theme_rb = 'light'
                 rebar_save_tasks = []
 
@@ -623,7 +632,8 @@ with tab_rebar:
                             fig = generate_rebar_plotly(
                                 mesh, envelope, env_label, method, mode=plot_mode,
                             )
-                            st.plotly_chart(fig, use_container_width=True)
+                            if rb_display:
+                                st.plotly_chart(fig, use_container_width=True)
 
                             if rb_save:
                                 env_folder = os.path.join(out_root, "Envelope_Rebar")
@@ -652,7 +662,8 @@ with tab_rebar:
                                 fig = generate_rebar_plotly(
                                     mesh, result, result_label, method, mode=plot_mode,
                                 )
-                                st.plotly_chart(fig, use_container_width=True)
+                                if rb_display:
+                                    st.plotly_chart(fig, use_container_width=True)
 
                                 if rb_save:
                                     src_folder = os.path.join(
@@ -730,7 +741,9 @@ with tab_rebar:
                     x_w, y_w, tris_w = mesh.x, mesh.y, mesh.triangles
                     polys_w, cents_w = None, None
 
-                show_mesh_sh = False
+                show_mesh_sh = show_mesh_rb_ui
+                rb_display = rb_output_mode in ("Display Only", "Display & Save")
+                rb_save = rb_output_mode in ("Save Only", "Display & Save")
                 theme_sh = 'light'
                 shear_save_tasks = []
 
@@ -793,7 +806,8 @@ with tab_rebar:
                             fig = generate_rebar_plotly(
                                 mesh, avs_env, avs_label, method, mode='spacing',
                             )
-                            st.plotly_chart(fig, use_container_width=True)
+                            if rb_display:
+                                st.plotly_chart(fig, use_container_width=True)
 
                             # Diameter plot
                             if direction == 'x':
@@ -806,7 +820,8 @@ with tab_rebar:
                             fig2 = generate_rebar_plotly(
                                 mesh, D_env, d_label, method, mode='diameter',
                             )
-                            st.plotly_chart(fig2, use_container_width=True)
+                            if rb_display:
+                                st.plotly_chart(fig2, use_container_width=True)
 
                             if rb_save:
                                 env_folder = os.path.join(out_root, "Envelope_Shear")
@@ -845,7 +860,8 @@ with tab_rebar:
                                 fig = generate_rebar_plotly(
                                     mesh, res['avs'], avs_label, method, mode='spacing',
                                 )
-                                st.plotly_chart(fig, use_container_width=True)
+                                if rb_display:
+                                    st.plotly_chart(fig, use_container_width=True)
 
                                 # Diameter plot
                                 s_l, s_t = res['s_l'], res['s_t']
@@ -853,7 +869,8 @@ with tab_rebar:
                                 fig2 = generate_rebar_plotly(
                                     mesh, res['diameter'], d_label, method, mode='diameter',
                                 )
-                                st.plotly_chart(fig2, use_container_width=True)
+                                if rb_display:
+                                    st.plotly_chart(fig2, use_container_width=True)
 
                                 if rb_save:
                                     src_folder = os.path.join(out_root, safe_filename(src))
