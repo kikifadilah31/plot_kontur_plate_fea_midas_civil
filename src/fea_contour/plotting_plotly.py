@@ -13,7 +13,7 @@ from matplotlib.tri import Triangulation, LinearTriInterpolator
 
 from .rebar import AVAILABLE_DIAMETERS
 
-INADEQUATE_COLOR = '#8B008B'  # DarkMagenta — matches CLI
+INADEQUATE_COLOR = '#404040'  # Dark Gray — matches CLI
 
 
 # =============================================================================

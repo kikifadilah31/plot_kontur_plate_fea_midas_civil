@@ -24,7 +24,7 @@ from .math_utils import safe_filename
 # Rebar-specific colormap
 # =============================================================================
 REBAR_CMAP = 'YlOrRd'
-INADEQUATE_COLOR = '#8B008B'  # DarkMagenta for Section Inadequate zones
+INADEQUATE_COLOR = '#404040'  # Dark Gray for Section Inadequate zones
 
 import threading
 thread_local_rb = threading.local()
