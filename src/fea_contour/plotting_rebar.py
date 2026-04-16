@@ -114,7 +114,6 @@ def generate_rebar_plot_worker(task):
 
         if is_diameter_plot:
             from matplotlib.colors import BoundaryNorm, ListedColormap
-            import matplotlib.colors as mcolors
             if is_shear:
                 from .rebar import SHEAR_DIAMETERS as AVAIL_D
             else:
