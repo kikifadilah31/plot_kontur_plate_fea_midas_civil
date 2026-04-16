@@ -107,13 +107,19 @@ def generate_rebar_plot_worker(task):
         if vmax <= vmin:
             vmax = vmin + 1.0
 
-        # Detect diameter plot for discrete colormap
-        is_diameter_plot = 'diameter' in filename_tag.lower()
+        # Detect plot type from filename_tag
+        fn_lower = filename_tag.lower()
+        is_diameter_plot = 'diameter' in fn_lower or '_shear_d_' in fn_lower
+        is_shear = 'shear' in fn_lower
 
         if is_diameter_plot:
             from matplotlib.colors import BoundaryNorm, ListedColormap
-            from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
-            # Boundaries: [0, 13, 16, 19, 22, 25, 32, 35(overflow)]
+            if is_shear:
+                from .rebar import SHEAR_DIAMETERS as AVAIL_D
+            else:
+                from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
+                
+            # Boundaries: [0, limit1, limit2, ..., limitN, overflow]
             boundaries = [0] + list(AVAIL_D) + [AVAIL_D[-1] + 3]
             n_bins = len(boundaries) - 1
             try:

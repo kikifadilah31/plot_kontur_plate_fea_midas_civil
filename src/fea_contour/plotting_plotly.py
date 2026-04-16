@@ -197,18 +197,36 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
         )
 
     if mode == 'diameter':
-        d_min = float(AVAILABLE_DIAMETERS[0])
-        d_max = float(AVAILABLE_DIAMETERS[-1])
+        is_shear = 'shear' in col_name.lower() or 'geser' in col_name.lower()
+        if is_shear:
+            from .rebar import SHEAR_DIAMETERS as AVAIL_D
+        else:
+            from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
+
+        d_min = float(AVAIL_D[0])
+        d_max = float(AVAIL_D[-1])
 
         colors = ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026', '#4d004b']
+        # Resample colors to match length of AVAIL_D
+        import matplotlib.colors as mcolors
+        import matplotlib.cm as cm
+        try:
+            base_cmap = matplotlib.colormaps['YlOrRd'].resampled(len(AVAIL_D))
+        except AttributeError:
+            base_cmap = cm.get_cmap('YlOrRd', len(AVAIL_D))
+        
         cs = []
-        for i, d in enumerate(AVAILABLE_DIAMETERS):
+        for i, d in enumerate(AVAIL_D):
             lo = (d - d_min) / (d_max - d_min)
-            cs.append([lo, colors[i]])
-            hi = lo if i == len(AVAILABLE_DIAMETERS) - 1 else (
-                (AVAILABLE_DIAMETERS[i + 1] - d_min) / (d_max - d_min)
+            # Extracted rgba for plotly colorscale
+            rgba = base_cmap(i / max(1, len(AVAIL_D) - 1))
+            hex_col = mcolors.to_hex(rgba)
+            cs.append([lo, hex_col])
+            
+            hi = lo if i == len(AVAIL_D) - 1 else (
+                (AVAIL_D[i + 1] - d_min) / (d_max - d_min)
             )
-            cs.append([hi, colors[i]])
+            cs.append([hi, hex_col])
 
         fig = go.Figure(data=[
             go.Contour(
@@ -218,8 +236,8 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
                 contours=dict(coloring='heatmap'),
                 colorbar=dict(
                     title=dict(text='Diameter (mm)'),
-                    tickvals=AVAILABLE_DIAMETERS.tolist(),
-                    ticktext=[f'D{int(d)}' for d in AVAILABLE_DIAMETERS],
+                    tickvals=AVAIL_D.tolist() if hasattr(AVAIL_D, 'tolist') else list(AVAIL_D),
+                    ticktext=[f'D{int(d)}' for d in AVAIL_D],
                 ),
                 hovertemplate=(
                     'X: %{x:.2f} m<br>Y: %{y:.2f} m<br>'
