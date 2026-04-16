@@ -206,10 +206,12 @@ def generate_plot_worker(task):
             bbox=bbox_style, arrowprops=arrow_style, zorder=11,
         )
 
-        # Watermark at the bottom left of the entire FIGURE (outside the plot box)
-        worker_fig.text(
-            0.01, 0.02, f'FEA Contour Plotter | {theme.upper()} THEME',
-            color=text_col, alpha=0.4, fontsize=9, fontweight='bold',
+        # Watermark inside axes (bottom-left corner) — avoids expanding figure margins
+        worker_ax.text(
+            0.01, 0.01, f'FEA Contour Plotter | {theme.upper()} THEME',
+            transform=worker_ax.transAxes,
+            color=text_col, alpha=0.3, fontsize=8, fontweight='bold',
+            va='bottom', ha='left',
         )
 
         # Axes styling
@@ -232,18 +234,26 @@ def generate_plot_worker(task):
             spine.set_color(text_col)
         worker_ax.tick_params(colors=text_col)
 
-        # Dynamic Colorbar linked exactly to the axes height to avoid overlapping
+        # Dynamic Colorbar linked exactly to the axes height
         from mpl_toolkits.axes_grid1 import make_axes_locatable
         divider = make_axes_locatable(worker_ax)
-        cax = divider.append_axes("right", size="2%", pad=0.4)
+        cax = divider.append_axes("right", size="2%", pad=0.6)
         cbar = worker_fig.colorbar(pc, cax=cax, orientation='vertical')
-        
-        cax.set_title('TENSION (+)\n(Tarik)\n', fontsize=10, color=text_col, fontweight='bold')
-        cax.set_xlabel('COMPRESSION (-)\n(Tekan)', fontsize=10, color=text_col, fontweight='bold', labelpad=15)
-                 
+
+        # TENSION label above colorbar (use cax.set_title with padding)
+        cax.set_title('TENSION (+)\n(Tarik)', fontsize=9, color=text_col, fontweight='bold', pad=8)
+
+        # COMPRESSION label below colorbar — positioned via axes text to avoid collision
+        cax.text(
+            0.5, -0.02, 'COMPRESSION (-)\n(Tekan)',
+            transform=cax.transAxes,
+            fontsize=9, color=text_col, fontweight='bold',
+            ha='center', va='top',
+        )
+
         cax.tick_params(colors=text_col, labelsize=9)
         cbar.outline.set_edgecolor(text_col)
-        cbar.set_label(display_name, fontsize=11, fontweight='bold', color=text_col)
+        cbar.set_label(display_name, fontsize=11, fontweight='bold', color=text_col, labelpad=12)
 
         if 0 not in cbar.get_ticks():
             ticks = list(cbar.get_ticks()) + [0]

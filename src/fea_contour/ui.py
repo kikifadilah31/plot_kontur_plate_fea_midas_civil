@@ -31,9 +31,10 @@ from fea_contour.reporting import (
 from fea_contour.reporting_typst import render_report_typst, render_master_typst
 from fea_contour.rebar import (
     DEFAULT_FC, DEFAULT_FY, DEFAULT_COVER,
-    AVAILABLE_DIAMETERS,
+    AVAILABLE_DIAMETERS, SHEAR_DIAMETERS,
     calc_effective_depth, calc_as_required,
     calc_spacing_from_diameter, calc_diameter_from_spacing,
+    calc_shear_Av_per_s, calc_shear_diameter,
 )
 from fea_contour.plotting_plotly import (
     generate_contour_plotly, generate_rebar_plotly,
@@ -476,25 +477,6 @@ with tab_rebar:
     with col_m3:
         cover = st.number_input("Cover (mm)", value=DEFAULT_COVER, step=5, key='rb_cover')
 
-    rebar_mode = st.radio(
-        "Analysis Mode",
-        ["Input Spacing -> Output Diameter", "Input Diameter -> Output Spacing"],
-        key='rb_mode',
-    )
-
-    if "Spacing" in rebar_mode.split("->")[0]:
-        spacing_input = st.number_input(
-            "Spacing (mm)", value=150, step=25, key='rb_spacing',
-        )
-        diameter_input = None
-    else:
-        diameter_input = st.selectbox(
-            "Diameter (mm)",
-            [int(d) for d in AVAILABLE_DIAMETERS],
-            index=1, key='rb_diameter',
-        )
-        spacing_input = None
-
     use_combos_rebar = st.checkbox(
         "Use Combinations", value=bool(combos),
         disabled=not combos, key='rb_use_combo',
@@ -520,166 +502,395 @@ with tab_rebar:
     )
     rb_save = st.checkbox("Save plots to output/", value=False, key='rb_save')
 
-    REBAR_CASES = [
-        ('Mxx (kN\u00b7m/m)', 'x', 'bottom', 'Mxx_Bottom_X'),
-        ('Mxx (kN\u00b7m/m)', 'x', 'top',    'Mxx_Top_X'),
-        ('Myy (kN\u00b7m/m)', 'y', 'bottom', 'Myy_Bottom_Y'),
-        ('Myy (kN\u00b7m/m)', 'y', 'top',    'Myy_Top_Y'),
-    ]
+    # ── Sub-tabs: Lentur vs Geser ──
+    sub_flexure, sub_shear = st.tabs(["💪 Lentur (Flexure)", "✂️ Geser (Shear)"])
 
-    if st.button("🧮 Analyze Rebar", type="primary", key="btn_rebar"):
-        if not rb_sources:
-            st.warning("Please select at least one source.")
+    # ════════════════════════════════════════════════════
+    # SUB-TAB: FLEXURE (existing logic, unchanged)
+    # ════════════════════════════════════════════════════
+    with sub_flexure:
+        rebar_mode = st.radio(
+            "Analysis Mode",
+            ["Input Spacing -> Output Diameter", "Input Diameter -> Output Spacing"],
+            key='rb_mode',
+        )
+
+        if "Spacing" in rebar_mode.split("->")[0]:
+            spacing_input = st.number_input(
+                "Spacing (mm)", value=150, step=25, key='rb_spacing',
+            )
+            diameter_input = None
         else:
-            h_mm = thickness * 1000
-            D_ref = float(diameter_input or AVAILABLE_DIAMETERS[1])
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            out_root = os.path.join(OUTPUT_FOLDER, f"rebar_{timestamp}")
+            diameter_input = st.selectbox(
+                "Diameter (mm)",
+                [int(d) for d in AVAILABLE_DIAMETERS],
+                index=1, key='rb_diameter',
+            )
+            spacing_input = None
 
-            show_envelope = rb_output in ("Envelope Only", "Both")
-            show_per_src = rb_output in ("Per Source", "Both")
+        REBAR_CASES = [
+            ('Mxx (kN\u00b7m/m)', 'x', 'bottom', 'Mxx_Bottom_X'),
+            ('Mxx (kN\u00b7m/m)', 'x', 'top',    'Mxx_Top_X'),
+            ('Myy (kN\u00b7m/m)', 'y', 'bottom', 'Myy_Bottom_Y'),
+            ('Myy (kN\u00b7m/m)', 'y', 'top',    'Myy_Top_Y'),
+        ]
 
-            # Prepare mesh data for worker tuple
-            if method == 'element-center':
-                x_w, y_w, tris_w = None, None, None
-                polys_w, cents_w = mesh.polygons, mesh.centroids
+        if st.button("🧮 Analyze Flexural Rebar", type="primary", key="btn_rebar"):
+            if not rb_sources:
+                st.warning("Please select at least one source.")
             else:
-                x_w, y_w, tris_w = mesh.x, mesh.y, mesh.triangles
-                polys_w, cents_w = None, None
+                h_mm = thickness * 1000
+                D_ref = float(diameter_input or AVAILABLE_DIAMETERS[1])
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                out_root = os.path.join(OUTPUT_FOLDER, f"rebar_{timestamp}")
 
-            show_mesh_rb = False
-            theme_rb = 'light'
-            rebar_save_tasks = []  # collect for multiprocessing
+                show_envelope = rb_output in ("Envelope Only", "Both")
+                show_per_src = rb_output in ("Per Source", "Both")
 
-            # ── Compute per-source results ──
-            all_results = {}
-            for src in rb_sources:
-                arrays = _get_arrays_for_source(src, rb_is_combo)
-                src_results = {}
+                if method == 'element-center':
+                    x_w, y_w, tris_w = None, None, None
+                    polys_w, cents_w = mesh.polygons, mesh.centroids
+                else:
+                    x_w, y_w, tris_w = mesh.x, mesh.y, mesh.triangles
+                    polys_w, cents_w = None, None
 
-                for moment_col, direction, layer, label in REBAR_CASES:
-                    m_arr = arrays.get(moment_col)
-                    if m_arr is None:
-                        continue
+                show_mesh_rb = False
+                theme_rb = 'light'
+                rebar_save_tasks = []
 
-                    if layer == 'bottom':
-                        Mu = np.where(m_arr > 0, m_arr, 0)
-                    else:
-                        Mu = np.where(m_arr < 0, np.abs(m_arr), 0)
-
-                    d_eff = calc_effective_depth(h_mm, cover, D_ref, direction, layer)
-                    As = calc_as_required(Mu, fc, fy, d_eff)
-
-                    if diameter_input is not None:
-                        result = calc_spacing_from_diameter(As, float(diameter_input))
-                        plot_mode = 'spacing'
-                    else:
-                        result = calc_diameter_from_spacing(As, float(spacing_input))
-                        plot_mode = 'diameter'
-
-                    src_results[label] = result
-
-                all_results[src] = src_results
-
-            # Determine plot_mode label
-            if diameter_input is not None:
-                mode_prefix = f"Spacing D{diameter_input}"
-                plot_mode = 'spacing'
-                unit_label = 'mm'
-            else:
-                mode_prefix = f"Diameter s{spacing_input}"
-                plot_mode = 'diameter'
-                unit_label = 'mm'
-
-            subtitle = f"h={h_mm:.0f}mm | fc={fc} | fy={fy} | cover={cover}mm"
-
-            # ── Envelope ──
-            if show_envelope:
-                st.subheader("📐 Envelope (All Selected Sources)")
-                env_cols = st.columns(2)
-                for case_idx, (_, _, _, label) in enumerate(REBAR_CASES):
-                    case_arrays = [
-                        all_results[src][label]
-                        for src in rb_sources
-                        if label in all_results.get(src, {})
-                    ]
-                    if not case_arrays:
-                        continue
-
-                    stacked = np.stack(case_arrays)
-                    if plot_mode == 'diameter':
-                        envelope = np.nanmax(stacked, axis=0)
-                    else:
-                        envelope = np.nanmin(stacked, axis=0)
-
-                    env_label = f"ENVELOPE {mode_prefix} - {label}"
-                    with env_cols[case_idx % 2]:
-                        fig = generate_rebar_plotly(
-                            mesh, envelope, env_label, method, mode=plot_mode,
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-
-                        if rb_save:
-                            env_folder = os.path.join(out_root, "Envelope_Rebar")
-                            os.makedirs(env_folder, exist_ok=True)
-                            rebar_save_tasks.append((
-                                x_w, y_w, envelope, tris_w, polys_w, cents_w,
-                                env_label, unit_label, subtitle,
-                                "Envelope", env_folder, method,
-                                show_mesh_rb, theme_rb,
-                                f"ENVELOPE_{safe_filename(env_label)}",
-                            ))
-
-            # ── Per Source ──
-            if show_per_src:
+                # ── Compute per-source results ──
+                all_results = {}
                 for src in rb_sources:
-                    st.subheader(src)
-                    plot_cols_ui = st.columns(2)
+                    arrays = _get_arrays_for_source(src, rb_is_combo)
+                    src_results = {}
 
-                    for case_idx, (_, _, _, label) in enumerate(REBAR_CASES):
-                        result = all_results.get(src, {}).get(label)
-                        if result is None:
+                    for moment_col, direction, layer, label in REBAR_CASES:
+                        m_arr = arrays.get(moment_col)
+                        if m_arr is None:
                             continue
 
-                        result_label = f"{mode_prefix} - {label}"
-                        with plot_cols_ui[case_idx % 2]:
+                        if layer == 'bottom':
+                            Mu = np.where(m_arr > 0, m_arr, 0)
+                        else:
+                            Mu = np.where(m_arr < 0, np.abs(m_arr), 0)
+
+                        d_eff = calc_effective_depth(h_mm, cover, D_ref, direction, layer)
+                        As = calc_as_required(Mu, fc, fy, d_eff)
+
+                        if diameter_input is not None:
+                            result = calc_spacing_from_diameter(As, float(diameter_input))
+                            plot_mode = 'spacing'
+                        else:
+                            result = calc_diameter_from_spacing(As, float(spacing_input))
+                            plot_mode = 'diameter'
+
+                        src_results[label] = result
+
+                    all_results[src] = src_results
+
+                if diameter_input is not None:
+                    mode_prefix = f"Spacing D{diameter_input}"
+                    plot_mode = 'spacing'
+                    unit_label = 'mm'
+                else:
+                    mode_prefix = f"Diameter s{spacing_input}"
+                    plot_mode = 'diameter'
+                    unit_label = 'mm'
+
+                subtitle = f"h={h_mm:.0f}mm | fc={fc} | fy={fy} | cover={cover}mm"
+
+                # ── Envelope ──
+                if show_envelope:
+                    st.subheader("📐 Envelope (All Selected Sources)")
+                    env_cols = st.columns(2)
+                    for case_idx, (_, _, _, label) in enumerate(REBAR_CASES):
+                        case_arrays = [
+                            all_results[src][label]
+                            for src in rb_sources
+                            if label in all_results.get(src, {})
+                        ]
+                        if not case_arrays:
+                            continue
+
+                        stacked = np.stack(case_arrays)
+                        if plot_mode == 'diameter':
+                            envelope = np.nanmax(stacked, axis=0)
+                        else:
+                            envelope = np.nanmin(stacked, axis=0)
+
+                        env_label = f"ENVELOPE {mode_prefix} - {label}"
+                        with env_cols[case_idx % 2]:
                             fig = generate_rebar_plotly(
-                                mesh, result, result_label, method, mode=plot_mode,
+                                mesh, envelope, env_label, method, mode=plot_mode,
                             )
                             st.plotly_chart(fig, use_container_width=True)
 
                             if rb_save:
-                                src_folder = os.path.join(
-                                    out_root, safe_filename(src),
-                                )
-                                os.makedirs(src_folder, exist_ok=True)
+                                env_folder = os.path.join(out_root, "Envelope_Rebar")
+                                os.makedirs(env_folder, exist_ok=True)
                                 rebar_save_tasks.append((
-                                    x_w, y_w, result, tris_w, polys_w, cents_w,
-                                    result_label, unit_label, subtitle,
-                                    src, src_folder, method,
+                                    x_w, y_w, envelope, tris_w, polys_w, cents_w,
+                                    env_label, unit_label, subtitle,
+                                    "Envelope", env_folder, method,
                                     show_mesh_rb, theme_rb,
-                                    safe_filename(result_label),
+                                    f"ENVELOPE_{safe_filename(env_label)}",
                                 ))
 
-            # --- Process saves safely in main thread ---
-            if rb_save and rebar_save_tasks:
-                st.info(f"Saving {len(rebar_save_tasks)} rebar plots safely...")
-                ok_count = 0
-                err_count = 0
-                
-                # Sequential saving prevents Streamlit Tornado from starving and crashing
-                rb_prog = st.progress(0, "Saving rebar plots...")
-                for i, task in enumerate(rebar_save_tasks):
-                    result = generate_rebar_plot_worker(task)
-                    if result['status'] == 'ok':
-                        ok_count += 1
-                    else:
-                        err_count += 1
-                    
-                    rb_prog.progress((i + 1) / len(rebar_save_tasks), f"Saving plot {i + 1} of {len(rebar_save_tasks)}...")
-                            
-                st.success(f"✅ Saved {ok_count} rebar plots to `{out_root}`")
-                if err_count:
-                    st.warning(f"⚠ {err_count} plots failed.")
+                # ── Per Source ──
+                if show_per_src:
+                    for src in rb_sources:
+                        st.subheader(src)
+                        plot_cols_ui = st.columns(2)
 
-            st.success("✅ Rebar analysis complete!")
+                        for case_idx, (_, _, _, label) in enumerate(REBAR_CASES):
+                            result = all_results.get(src, {}).get(label)
+                            if result is None:
+                                continue
+
+                            result_label = f"{mode_prefix} - {label}"
+                            with plot_cols_ui[case_idx % 2]:
+                                fig = generate_rebar_plotly(
+                                    mesh, result, result_label, method, mode=plot_mode,
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+
+                                if rb_save:
+                                    src_folder = os.path.join(
+                                        out_root, safe_filename(src),
+                                    )
+                                    os.makedirs(src_folder, exist_ok=True)
+                                    rebar_save_tasks.append((
+                                        x_w, y_w, result, tris_w, polys_w, cents_w,
+                                        result_label, unit_label, subtitle,
+                                        src, src_folder, method,
+                                        show_mesh_rb, theme_rb,
+                                        safe_filename(result_label),
+                                    ))
+
+                # --- Process saves safely in main thread ---
+                if rb_save and rebar_save_tasks:
+                    st.info(f"Saving {len(rebar_save_tasks)} rebar plots safely...")
+                    ok_count = 0
+                    err_count = 0
+
+                    rb_prog = st.progress(0, "Saving rebar plots...")
+                    for i, task in enumerate(rebar_save_tasks):
+                        result = generate_rebar_plot_worker(task)
+                        if result['status'] == 'ok':
+                            ok_count += 1
+                        else:
+                            err_count += 1
+
+                        rb_prog.progress((i + 1) / len(rebar_save_tasks), f"Saving plot {i + 1} of {len(rebar_save_tasks)}...")
+
+                    st.success(f"✅ Saved {ok_count} rebar plots to `{out_root}`")
+                    if err_count:
+                        st.warning(f"⚠ {err_count} plots failed.")
+
+                st.success("✅ Flexural rebar analysis complete!")
+
+    # ════════════════════════════════════════════════════
+    # SUB-TAB: SHEAR (new feature)
+    # ════════════════════════════════════════════════════
+    with sub_shear:
+        st.caption("Analisis tulangan geser berdasarkan Vxx dan Vyy (ACI 318 / SNI 2847)")
+
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            shear_s_long = st.number_input(
+                "Spasi Longitudinal (mm)", value=150, step=25, key='sh_s_long',
+                help="Jarak antar sengkang searah gaya geser",
+            )
+        with col_s2:
+            shear_s_trans = st.number_input(
+                "Spasi Transversal (mm)", value=150, step=25, key='sh_s_trans',
+                help="Jarak antar kaki sengkang melintang (pembagi lebar 1m)",
+            )
+
+        SHEAR_CASES_UI = [
+            ('Vxx (kN/m)', 'x', 'Vxx_Shear_X'),
+            ('Vyy (kN/m)', 'y', 'Vyy_Shear_Y'),
+        ]
+
+        if st.button("✂️ Analyze Shear Rebar", type="primary", key="btn_shear"):
+            if not rb_sources:
+                st.warning("Please select at least one source.")
+            else:
+                h_mm = thickness * 1000
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                out_root = os.path.join(OUTPUT_FOLDER, f"shear_{timestamp}")
+
+                show_envelope = rb_output in ("Envelope Only", "Both")
+                show_per_src = rb_output in ("Per Source", "Both")
+
+                if method == 'element-center':
+                    x_w, y_w, tris_w = None, None, None
+                    polys_w, cents_w = mesh.polygons, mesh.centroids
+                else:
+                    x_w, y_w, tris_w = mesh.x, mesh.y, mesh.triangles
+                    polys_w, cents_w = None, None
+
+                show_mesh_sh = False
+                theme_sh = 'light'
+                shear_save_tasks = []
+
+                # ── Compute per-source shear results ──
+                all_shear_results = {}  # {src: {label: {'avs': arr, 'diameter': arr}}}
+                for src in rb_sources:
+                    arrays = _get_arrays_for_source(src, rb_is_combo)
+                    src_results = {}
+
+                    for shear_col, direction, label in SHEAR_CASES_UI:
+                        v_arr = arrays.get(shear_col)
+                        if v_arr is None:
+                            continue
+
+                        D_for_depth = 16.0
+                        dv = calc_effective_depth(h_mm, cover, D_for_depth, direction, 'bottom')
+                        Av_s = calc_shear_Av_per_s(v_arr, fc, fy, dv)
+
+                        # Spacing convention
+                        if direction == 'x':
+                            s_l, s_t = shear_s_long, shear_s_trans
+                        else:
+                            s_l, s_t = shear_s_trans, shear_s_long
+
+                        D_shear = calc_shear_diameter(Av_s, s_l, s_t)
+
+                        src_results[label] = {
+                            'avs': Av_s,
+                            'diameter': D_shear,
+                            'dv': dv,
+                            's_l': s_l,
+                            's_t': s_t,
+                        }
+
+                    all_shear_results[src] = src_results
+
+                subtitle_sh = f"h={h_mm:.0f}mm | fc={fc} | fy={fy} | cover={cover}mm"
+
+                # ── Envelope ──
+                if show_envelope:
+                    st.subheader("📐 Shear Envelope (All Selected Sources)")
+                    env_cols = st.columns(2)
+
+                    for case_idx, (_, direction, label) in enumerate(SHEAR_CASES_UI):
+                        # Av/s envelope
+                        avs_arrays = [
+                            all_shear_results[src][label]['avs']
+                            for src in rb_sources
+                            if label in all_shear_results.get(src, {})
+                        ]
+                        if not avs_arrays:
+                            continue
+
+                        avs_env = np.fmax.reduce(avs_arrays)
+                        dir_label = "Arah X" if direction == 'x' else "Arah Y"
+
+                        with env_cols[case_idx % 2]:
+                            # Av/s plot
+                            avs_label = f"ENVELOPE Av/s — {dir_label}"
+                            fig = generate_rebar_plotly(
+                                mesh, avs_env, avs_label, method, mode='spacing',
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+
+                            # Diameter plot
+                            if direction == 'x':
+                                s_l, s_t = shear_s_long, shear_s_trans
+                            else:
+                                s_l, s_t = shear_s_trans, shear_s_long
+
+                            D_env = calc_shear_diameter(avs_env, s_l, s_t)
+                            d_label = f"ENVELOPE Diameter s={int(s_l)}×{int(s_t)}mm — {dir_label}"
+                            fig2 = generate_rebar_plotly(
+                                mesh, D_env, d_label, method, mode='diameter',
+                            )
+                            st.plotly_chart(fig2, use_container_width=True)
+
+                            if rb_save:
+                                env_folder = os.path.join(out_root, "Envelope_Shear")
+                                os.makedirs(env_folder, exist_ok=True)
+                                shear_save_tasks.append((
+                                    x_w, y_w, avs_env, tris_w, polys_w, cents_w,
+                                    avs_label, 'mm²/mm', subtitle_sh,
+                                    "Envelope", env_folder, method,
+                                    show_mesh_sh, theme_sh,
+                                    f"ENVELOPE_{safe_filename(avs_label)}",
+                                ))
+                                shear_save_tasks.append((
+                                    x_w, y_w, D_env, tris_w, polys_w, cents_w,
+                                    d_label, 'mm', subtitle_sh,
+                                    "Envelope", env_folder, method,
+                                    show_mesh_sh, theme_sh,
+                                    f"ENVELOPE_{safe_filename(d_label)}",
+                                ))
+
+                # ── Per Source ──
+                if show_per_src:
+                    for src in rb_sources:
+                        st.subheader(f"✂️ {src}")
+                        plot_cols_ui = st.columns(2)
+
+                        for case_idx, (_, direction, label) in enumerate(SHEAR_CASES_UI):
+                            res = all_shear_results.get(src, {}).get(label)
+                            if res is None:
+                                continue
+
+                            dir_label = "Arah X" if direction == 'x' else "Arah Y"
+
+                            with plot_cols_ui[case_idx % 2]:
+                                # Av/s plot
+                                avs_label = f"Av/s Geser — {dir_label}"
+                                fig = generate_rebar_plotly(
+                                    mesh, res['avs'], avs_label, method, mode='spacing',
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+
+                                # Diameter plot
+                                s_l, s_t = res['s_l'], res['s_t']
+                                d_label = f"Diameter Sengkang s={int(s_l)}×{int(s_t)}mm — {dir_label}"
+                                fig2 = generate_rebar_plotly(
+                                    mesh, res['diameter'], d_label, method, mode='diameter',
+                                )
+                                st.plotly_chart(fig2, use_container_width=True)
+
+                                if rb_save:
+                                    src_folder = os.path.join(out_root, safe_filename(src))
+                                    os.makedirs(src_folder, exist_ok=True)
+                                    shear_save_tasks.append((
+                                        x_w, y_w, res['avs'], tris_w, polys_w, cents_w,
+                                        avs_label, 'mm²/mm', subtitle_sh,
+                                        src, src_folder, method,
+                                        show_mesh_sh, theme_sh,
+                                        safe_filename(avs_label),
+                                    ))
+                                    shear_save_tasks.append((
+                                        x_w, y_w, res['diameter'], tris_w, polys_w, cents_w,
+                                        d_label, 'mm', subtitle_sh,
+                                        src, src_folder, method,
+                                        show_mesh_sh, theme_sh,
+                                        safe_filename(d_label),
+                                    ))
+
+                # --- Process saves safely in main thread ---
+                if rb_save and shear_save_tasks:
+                    st.info(f"Saving {len(shear_save_tasks)} shear plots safely...")
+                    ok_count = 0
+                    err_count = 0
+
+                    sh_prog = st.progress(0, "Saving shear plots...")
+                    for i, task in enumerate(shear_save_tasks):
+                        result = generate_rebar_plot_worker(task)
+                        if result['status'] == 'ok':
+                            ok_count += 1
+                        else:
+                            err_count += 1
+
+                        sh_prog.progress((i + 1) / len(shear_save_tasks), f"Saving plot {i + 1} of {len(shear_save_tasks)}...")
+
+                    st.success(f"✅ Saved {ok_count} shear plots to `{out_root}`")
+                    if err_count:
+                        st.warning(f"⚠ {err_count} plots failed.")
+
+                st.success("✅ Shear rebar analysis complete!")

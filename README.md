@@ -1,5 +1,5 @@
 # FEA 2D Contour Plot Generator
-**Version 1.5.0 | Professional FEA Visualization & Reporting**
+**Version 1.6.0 | Professional FEA Visualization & Reporting**
 
 High-performance Python tool for generating FEA contour plots and comprehensive technical reports from Midas Civil (or similar) plate/shell results.
 
@@ -160,6 +160,9 @@ fea-rebar [OPTIONS]
 | `--cover` | Selimut beton bersih (mm) | `40` |
 | `--diameter` | Diameter tulangan (mm). Jika diset, output = plot **Spasi** | *(none)* |
 | `--spacing` | Spasi tulangan (mm). Jika diset, output = plot **Diameter** | `150` |
+| `--shear` | Mengaktifkan perhitungan **tulangan geser** (Av/s dan diameter dari Vxx/Vyy) | `False` |
+| `--shear-spacing-long` | Spasi sengkang arah memanjang (longitudinal) dalam mm | `150` |
+| `--shear-spacing-trans` | Spasi sengkang melintang (transversal) dalam mm | `150` |
 | `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
 | `--comb` | Path ke file CSV kombinasi beban | *(none)* |
 | `--comb-select` | Wildcard filter untuk memproses kombinasi tertentu (cth: `K_1*`) | `*` |
@@ -177,6 +180,9 @@ fea-rebar --fc 30 --fy 420 --spacing 150 --comb input/kombinasi_beban.csv --no-m
 
 # Mode Output Spasi (cari jarak spasi pakai jika kita menggunakan besi D16)
 fea-rebar --fc 30 --fy 420 --diameter 16 --comb input/kombinasi_beban.csv --no-mesh --comb-select "K_1*"
+
+# Analisis Geser (Shear) dengan spasi sengkang 150x150 mm
+fea-rebar --shear --shear-spacing-long 150 --shear-spacing-trans 150 --comb input/kombinasi_beban.csv --no-mesh
 ```
 ### `fea-ui` — Interactive Web UI (Dashboard)
 
@@ -188,10 +194,10 @@ fea-ui    # Membuka browser otomatis ke http://localhost:8501
 
 Atau tanpa install, download `run_fea.bat` dari [GitHub Releases](https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/releases), lalu double-click di folder kerja.
 
-**Fitur UI (v1.5.0):**
+**Fitur UI (v1.6.0):**
 - **📊 Contour Plot** — Display Only / Save Only / Display & Save. Kini dengan **Symmetric Colorbar** (skala seimbang nilai +/-).
 - **📋 Report** — Generate MD atau Typst, preview langsung di browser.
-- **🧮 Rebar Analysis** — Zonasi diameter/spasi tulangan interaktif dengan badge **SECTION INADEQUATE** otomatis jika penampang tidak kuat.
+- **🧮 Rebar Analysis** — Zonasi interaktif untuk tulangan lentur & tulangan geser (baru!) sekaligus mendeteksi penampang tipis otomatis (SECTION INADEQUATE).
 - **🛡️ Secure Sequential Save** — Mesin penyimpanan gambar yang telah dioptimalkan untuk Windows agar tidak crash/error saat export masal.
 
 ---

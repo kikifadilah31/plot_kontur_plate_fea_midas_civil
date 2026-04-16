@@ -22,10 +22,11 @@ from .mesh import MeshTopology
 from .values import ValueMapper
 from .rebar import (
     DEFAULT_FC, DEFAULT_FY, DEFAULT_COVER, PHI_FLEXURE,
-    AVAILABLE_DIAMETERS,
+    AVAILABLE_DIAMETERS, SHEAR_DIAMETERS,
     calc_effective_depth, calc_as_required,
     calc_spacing_from_diameter, calc_diameter_from_spacing,
     check_spacing_limits,
+    calc_shear_Av_per_s, calc_shear_diameter,
 )
 from .plotting_rebar import init_rebar_worker, generate_rebar_plot_worker
 
@@ -39,6 +40,15 @@ REBAR_CASES = [
     ('Mxx (kN·m/m)', 'x', 'top',    'Mxx_Top_X'),      # Mxx < 0 → top
     ('Myy (kN·m/m)', 'y', 'bottom', 'Myy_Bottom_Y'),   # Myy > 0 → bottom
     ('Myy (kN·m/m)', 'y', 'top',    'Myy_Top_Y'),      # Myy < 0 → top
+]
+
+# Shear reinforcement cases
+# For Vxx: s_longitudinal = along X, s_transversal = along Y
+# For Vyy: s_longitudinal = along Y, s_transversal = along X
+SHEAR_CASES = [
+    # (shear_col, direction, label)
+    ('Vxx (kN/m)', 'x', 'Vxx_Shear_X'),
+    ('Vyy (kN/m)', 'y', 'Vyy_Shear_Y'),
 ]
 
 
@@ -115,6 +125,59 @@ def _build_rebar_tasks(
     return tasks
 
 
+def _build_shear_tasks(
+    x, y, triangles, polygons, centroids,
+    shear_array, h_mm, cover, fc, fy,
+    s_long, s_trans,
+    direction, case_label,
+    load_name, output_folder, method, show_mesh, theme,
+):
+    """
+    Build plotting task tuples for one shear case.
+    Returns list of task tuples (Av/s plot + diameter plot).
+    """
+    tasks = []
+
+    # Effective depth (use D16 assumption for depth calc, direction determines layer order)
+    D_for_depth = 16.0
+    # For shear, use 'bottom' layer convention for dv (conservative)
+    dv = calc_effective_depth(h_mm, cover, D_for_depth, direction, 'bottom')
+
+    # Calculate Av/s
+    Av_s = calc_shear_Av_per_s(shear_array, fc, fy, dv)
+
+    # Skip if all zeros (no shear rebar needed anywhere)
+    if np.all(Av_s == 0):
+        return tasks
+
+    dir_label = "Arah X" if direction == 'x' else "Arah Y"
+
+    # --- Task 1: Av/s plot ---
+    tasks.append((
+        x, y, Av_s, triangles, polygons, centroids,
+        f'Av/s Geser — {dir_label}',
+        'mm\u00b2/mm',
+        f'(Method: {method.replace("-", " ").title()} | dv = {dv:.0f} mm)',
+        load_name, output_folder, method, show_mesh, theme,
+        f'Avs_{case_label}',
+    ))
+
+    # --- Task 2: Diameter plot ---
+    D_shear = calc_shear_diameter(Av_s, s_long, s_trans)
+    s_long_label = int(s_long)
+    s_trans_label = int(s_trans)
+    tasks.append((
+        x, y, D_shear, triangles, polygons, centroids,
+        f'Diameter Sengkang s={s_long_label}\u00d7{s_trans_label}mm — {dir_label}',
+        'mm',
+        f'(Method: {method.replace("-", " ").title()} | dv = {dv:.0f} mm)',
+        load_name, output_folder, method, show_mesh, theme,
+        f'shear_diameter_s{s_long_label}x{s_trans_label}_{case_label}',
+    ))
+
+    return tasks
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='FEA Rebar Analysis & Contour Plot Generator'
@@ -147,6 +210,12 @@ def main():
                         help='Filter combination names by wildcard pattern (default: * = all)')
     parser.add_argument('--theme', type=str, choices=['light', 'dark'], default='light',
                         help='Plot styling theme (default: light)')
+    parser.add_argument('--shear', action='store_true',
+                        help='Enable shear reinforcement analysis (Av/s from Vxx, Vyy)')
+    parser.add_argument('--shear-spacing-long', type=float, default=150,
+                        help='Stirrup longitudinal spacing in mm (default: 150)')
+    parser.add_argument('--shear-spacing-trans', type=float, default=150,
+                        help='Stirrup transversal spacing in mm (default: 150)')
     args = parser.parse_args()
 
     show_mesh = not args.no_mesh
@@ -176,6 +245,8 @@ def main():
     print(f"Plate Thickness:  {h_mm:.0f} mm")
     print(f"f'c = {args.fc} MPa | fy = {args.fy} MPa | Cover = {args.cover} mm")
     print(f"{mode_desc}")
+    if args.shear:
+        print(f"Shear Analysis: ON | s_long={args.shear_spacing_long:.0f}mm | s_trans={args.shear_spacing_trans:.0f}mm")
 
     # --- Resolve and load input files ---
     k_file, c_file, g_file = resolve_input_files(
@@ -207,6 +278,7 @@ def main():
     # --- Envelope accumulators ---
     # Structure: envelope_as[case_label] = running_max_array
     envelope_data = {}
+    shear_envelope_data = {}  # For shear Av/s envelope
 
     for method in methods_to_run:
         print(f"\nProcessing Method: {method.upper()}")
@@ -269,6 +341,47 @@ def main():
 
             return tasks
 
+        def process_shear_source(source_name, force_arrays, folder_path):
+            """Process one source for shear reinforcement."""
+            tasks = []
+            for shear_col, direction, case_label in SHEAR_CASES:
+                if shear_col not in force_arrays:
+                    continue
+                v_arr = force_arrays[shear_col]
+
+                # Determine spacing convention:
+                # Vxx → s_long = along X (user input), s_trans = along Y (user input)
+                # Vyy → s_long = along Y (user input), s_trans = along X (user input)
+                if direction == 'x':
+                    s_l = args.shear_spacing_long
+                    s_t = args.shear_spacing_trans
+                else:
+                    s_l = args.shear_spacing_trans
+                    s_t = args.shear_spacing_long
+
+                case_tasks = _build_shear_tasks(
+                    x, y, tris, polys, cents,
+                    v_arr, h_mm, args.cover, args.fc, args.fy,
+                    s_l, s_t,
+                    direction, case_label,
+                    source_name, folder_path, method, show_mesh, args.theme,
+                )
+                tasks.extend(case_tasks)
+
+                # --- Shear envelope accumulation ---
+                D_for_depth = 16.0
+                dv = calc_effective_depth(h_mm, args.cover, D_for_depth, direction, 'bottom')
+                Av_s = calc_shear_Av_per_s(v_arr, args.fc, args.fy, dv)
+
+                if case_label not in shear_envelope_data:
+                    shear_envelope_data[case_label] = Av_s.copy()
+                else:
+                    shear_envelope_data[case_label] = np.fmax(
+                        shear_envelope_data[case_label], Av_s
+                    )
+
+            return tasks
+
         if not use_combos:
             # --- Mode: Load Case Tunggal (pilecap) ---
             for lc in load_cases:
@@ -283,6 +396,15 @@ def main():
                         moment_arrays[moment_col] = arr
 
                 all_tasks.extend(process_moment_source(lc, moment_arrays, lc_folder))
+
+                # --- Shear tasks for this load case ---
+                if args.shear:
+                    force_arrays = {}
+                    for shear_col, _, _ in SHEAR_CASES:
+                        arr = vm.get_z_array(shear_col)
+                        if len(arr) > 0:
+                            force_arrays[shear_col] = arr
+                    all_tasks.extend(process_shear_source(lc, force_arrays, lc_folder))
 
         else:
             # --- Mode: Kombinasi Beban ---
@@ -333,6 +455,19 @@ def main():
                     process_moment_source(f"Comb: {combo_name}", moment_arrays, combo_folder)
                 )
 
+                # --- Shear tasks for this combination ---
+                if args.shear:
+                    force_arrays = {}
+                    for shear_col, _, _ in SHEAR_CASES:
+                        first_arr = value_mapper_cache[lc_factors[0][0]].get_z_array(shear_col)
+                        z_comb = np.zeros_like(first_arr)
+                        for lc_a, fac in lc_factors:
+                            z_comb += fac * value_mapper_cache[lc_a].get_z_array(shear_col)
+                        force_arrays[shear_col] = z_comb
+                    all_tasks.extend(
+                        process_shear_source(f"Comb: {combo_name}", force_arrays, combo_folder)
+                    )
+
         # --- Envelope tasks ---
         if envelope_data:
             envelope_folder = os.path.join(method_output, "Envelope_Rebar")
@@ -381,6 +516,48 @@ def main():
                         'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                         f'ENVELOPE_diameter_s{int(spacing_input)}_{case_label}',
                     ))
+
+        # --- Shear Envelope tasks ---
+        if args.shear and shear_envelope_data:
+            shear_env_folder = os.path.join(method_output, "Envelope_Shear")
+            os.makedirs(shear_env_folder, exist_ok=True)
+
+            for case_label, Av_s_env in shear_envelope_data.items():
+                for shear_col, direction, cl in SHEAR_CASES:
+                    if cl == case_label:
+                        break
+
+                dir_label = "Arah X" if direction == 'x' else "Arah Y"
+                D_for_depth = 16.0
+                dv = calc_effective_depth(h_mm, args.cover, D_for_depth, direction, 'bottom')
+
+                # Av/s envelope plot
+                all_tasks.append((
+                    x, y, Av_s_env, tris, polys, cents,
+                    f'ENVELOPE Av/s Geser — {dir_label}',
+                    'mm²/mm',
+                    f'(Maximum dari seluruh kasus | dv = {dv:.0f} mm)',
+                    'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
+                    f'ENVELOPE_Avs_{case_label}',
+                ))
+
+                # Diameter envelope plot
+                if direction == 'x':
+                    s_l = args.shear_spacing_long
+                    s_t = args.shear_spacing_trans
+                else:
+                    s_l = args.shear_spacing_trans
+                    s_t = args.shear_spacing_long
+
+                D_shear_env = calc_shear_diameter(Av_s_env, s_l, s_t)
+                all_tasks.append((
+                    x, y, D_shear_env, tris, polys, cents,
+                    f'ENVELOPE Diameter Sengkang s={int(s_l)}×{int(s_t)}mm — {dir_label}',
+                    'mm',
+                    f'(Maximum dari seluruh kasus | dv = {dv:.0f} mm)',
+                    'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
+                    f'ENVELOPE_shear_D_s{int(s_l)}x{int(s_t)}_{case_label}',
+                ))
 
         # --- Parallel Plotting ---
         print(f"  [3/3] Plotting {len(all_tasks)} rebar plots using {cpu_count()} cores...")
