@@ -245,6 +245,21 @@ $$\sigma = \frac{N}{A} - \frac{M \cdot y}{I}$$
 | y_top | `+t/2` |
 | y_bottom | `−t/2` |
 
+### Perhitungan Tulangan Geser (Sengkang)
+Berbasis pias elemen pelat $b_w = 1000$ m, gaya-gaya dalam dihitung dengan rasio luasan per unit area.
+
+**1. Kapasitas Geser Beton ($V_c$)**
+$$ V_c = \frac{1}{6} \cdot \sqrt{f'_c} \cdot b_w \cdot d_v \cdot \beta $$
+*(Untuk beton normal-weight biasa, engine mendefinisikan $\beta = 2.0$)*
+
+**2. Rasio Luas Kebutuhan ($A_v/s$)**
+$$ V_s = \frac{V_u}{\phi_v} - V_c $$
+$$ \frac{A_v}{s} = \frac{V_s}{f_{yt} \cdot d_v} $$
+*(Apabila $V_u \leq 0.5 \phi_v V_c$, rasio luas diset menjadi 0 atau dibatasi pada batas aman tulangan minimum).*
+
+**3. Konversi Diameter Nominal**
+$$ D_s = \sqrt{\frac{4 \cdot (A_v/s) \cdot s_{\text{longitudinal}} \cdot s_{\text{transversal}}}{\pi \cdot 1000}} $$
+
 ### Sign Convention (Midas Civil)
 
 | Parameter | Tanda | Arti |
