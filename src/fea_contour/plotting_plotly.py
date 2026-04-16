@@ -203,30 +203,39 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
         else:
             from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
 
-        d_min = float(AVAIL_D[0])
+        # Explicit categorical palette to replace sequential gradient
+        distinct_colors = [
+            '#3498DB',  # Bin 1 (Blue)
+            '#2ECC71',  # Bin 2 (Green)
+            '#F1C40F',  # Bin 3 (Yellow)
+            '#E67E22',  # Bin 4 (Orange)
+            '#E74C3C',  # Bin 5 (Red)
+            '#9B59B6',  # Bin 6 (Purple)
+            '#FF1493',  # Overflows
+            '#00FFFF',  # Overflows
+        ]
+
+        # Use -0.01 instead of exact 0 to make distinct nominal 0.0 rendering (Plotly handles 0 in colorscale by min mapping)
+        # But for Plotly, zmin=0 so d_min=0. Let's fix zmin to 0.0.
+        d_min = 0.0
         d_max = float(AVAIL_D[-1])
 
-        colors = ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026', '#4d004b']
-        # Resample colors to match length of AVAIL_D
-        import matplotlib.colors as mcolors
-        import matplotlib.cm as cm
-        try:
-            base_cmap = matplotlib.colormaps['YlOrRd'].resampled(len(AVAIL_D))
-        except AttributeError:
-            base_cmap = cm.get_cmap('YlOrRd', len(AVAIL_D))
-        
         cs = []
+        # Zero region mapping
+        cs.append([0.0, '#FFFFFF'])
+        
+        # We find the proportion where AVAIL_D[0] lies
+        lim_start = float(AVAIL_D[0]) / d_max
+        cs.append([lim_start - 0.0001, '#FFFFFF'])
+        
+        prev_lim = lim_start
         for i, d in enumerate(AVAIL_D):
-            lo = (d - d_min) / (d_max - d_min)
-            # Extracted rgba for plotly colorscale
-            rgba = base_cmap(i / max(1, len(AVAIL_D) - 1))
-            hex_col = mcolors.to_hex(rgba)
-            cs.append([lo, hex_col])
+            lim = float(d) / d_max
+            hex_col = distinct_colors[i]
             
-            hi = lo if i == len(AVAIL_D) - 1 else (
-                (AVAIL_D[i + 1] - d_min) / (d_max - d_min)
-            )
-            cs.append([hi, hex_col])
+            cs.append([prev_lim, hex_col])
+            cs.append([lim, hex_col])
+            prev_lim = lim
 
         fig = go.Figure(data=[
             go.Contour(
@@ -236,8 +245,8 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
                 contours=dict(coloring='heatmap'),
                 colorbar=dict(
                     title=dict(text='Diameter (mm)'),
-                    tickvals=AVAIL_D.tolist() if hasattr(AVAIL_D, 'tolist') else list(AVAIL_D),
-                    ticktext=[f'D{int(d)}' for d in AVAIL_D],
+                    tickvals=[0] + (AVAIL_D.tolist() if hasattr(AVAIL_D, 'tolist') else list(AVAIL_D)),
+                    ticktext=['OK'] + [f'D{int(d)}' for d in AVAIL_D],
                 ),
                 hovertemplate=(
                     'X: %{x:.2f} m<br>Y: %{y:.2f} m<br>'

@@ -114,20 +114,30 @@ def generate_rebar_plot_worker(task):
 
         if is_diameter_plot:
             from matplotlib.colors import BoundaryNorm, ListedColormap
+            import matplotlib.colors as mcolors
             if is_shear:
                 from .rebar import SHEAR_DIAMETERS as AVAIL_D
             else:
                 from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
                 
-            # Boundaries: [0, limit1, limit2, ..., limitN, overflow]
-            boundaries = [0] + list(AVAIL_D) + [AVAIL_D[-1] + 3]
+            # Boundaries: [-0.1, 0.1, limit1, limit2, ..., limitN, overflow]
+            boundaries = [-0.1, 0.1] + list(AVAIL_D) + [AVAIL_D[-1] + 3]
             n_bins = len(boundaries) - 1
-            try:
-                base_cmap = matplotlib.colormaps['YlOrRd'].resampled(n_bins)
-            except AttributeError:
-                base_cmap = cm.get_cmap('YlOrRd', n_bins)
             
-            cmap_colors = base_cmap(np.linspace(0, 1, n_bins))
+            # Explicit highly contrasting categorical palette!
+            distinct_colors = [
+                '#FFFFFF',  # 0.0 (Safe / 0) -> White
+                '#3498DB',  # Bin 1 (Blue)
+                '#2ECC71',  # Bin 2 (Green)
+                '#F1C40F',  # Bin 3 (Yellow)
+                '#E67E22',  # Bin 4 (Orange)
+                '#E74C3C',  # Bin 5 (Red)
+                '#9B59B6',  # Bin 6 (Purple)
+                '#FF1493',  # Overflows...
+                '#00FFFF',  # Overflows...
+            ]
+            
+            cmap_colors = distinct_colors[:n_bins]
             cmap_colors[-1] = mcolors.to_rgba(INADEQUATE_COLOR)
             cmap = mcolors.ListedColormap(cmap_colors)
             norm = mcolors.BoundaryNorm(boundaries, cmap.N)
