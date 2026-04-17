@@ -172,6 +172,33 @@ def generate_contour_plotly(mesh, z_values, col_name, method, colorscale='RdBu_r
     return fig
 
 
+def _snap_to_nearest_diameter(Zi, diameters):
+    """
+    Snap interpolated grid values to the nearest available diameter.
+    This prevents grid interpolation from creating phantom intermediate
+    values (e.g. 14.5 between D13 and D16) that don't exist in reality.
+    Matches CLI's tricontourf BoundaryNorm discrete behavior.
+    """
+    diameters = np.array(diameters, dtype=float)
+    Zi_out = np.full_like(Zi, np.nan)
+    valid = np.isfinite(Zi)
+
+    if not np.any(valid):
+        return np.where(np.isnan(Zi), np.nan, 0.0)
+
+    flat = Zi[valid].flatten()
+    # Values near zero stay zero
+    near_zero = np.abs(flat) < 0.5
+    # For non-zero values, find nearest diameter
+    diffs = np.abs(flat[:, None] - diameters[None, :])
+    nearest_idx = np.argmin(diffs, axis=1)
+    snapped = diameters[nearest_idx]
+    snapped[near_zero] = 0.0
+
+    Zi_out[valid] = snapped
+    return Zi_out
+
+
 def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
     """
     Generate an interactive Plotly rebar contour figure with:
@@ -184,8 +211,10 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
     has_nan = np.any(np.isnan(z_plot))
     n_inad = int(np.sum(np.isnan(z_plot)))
 
-    # Replace inf with 0 (no rebar needed), NaN stays for inadequate
+    # Replace inf AND NaN with 0 BEFORE interpolation (matching CLI behavior)
+    # This prevents NaN from spreading to neighbor cells during grid interpolation
     z_plot[np.isinf(z_plot)] = 0.0
+    z_plot[np.isnan(z_plot)] = 0.0
 
     if method == 'element-center':
         cx = np.array([c[0] for c in mesh.centroids])
@@ -203,7 +232,12 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
         else:
             from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
 
-        # Explicit categorical palette to replace sequential gradient
+        # CRITICAL: Snap interpolated values to nearest real diameter.
+        # Grid interpolation creates phantom values (e.g. 14.5 between D13 & D16).
+        # This snapping ensures Plotly output matches CLI's discrete tricontourf.
+        Zi = _snap_to_nearest_diameter(Zi, AVAIL_D)
+
+        # Explicit categorical palette
         distinct_colors = [
             '#3498DB',  # Bin 1 (Blue)
             '#2ECC71',  # Bin 2 (Green)
@@ -215,24 +249,22 @@ def generate_rebar_plotly(mesh, z_values, col_name, method, mode='diameter'):
             '#00FFFF',  # Overflows
         ]
 
-        # Use -0.01 instead of exact 0 to make distinct nominal 0.0 rendering (Plotly handles 0 in colorscale by min mapping)
-        # But for Plotly, zmin=0 so d_min=0. Let's fix zmin to 0.0.
         d_min = 0.0
         d_max = float(AVAIL_D[-1])
 
         cs = []
         # Zero region mapping
         cs.append([0.0, '#FFFFFF'])
-        
+
         # We find the proportion where AVAIL_D[0] lies
         lim_start = float(AVAIL_D[0]) / d_max
         cs.append([lim_start - 0.0001, '#FFFFFF'])
-        
+
         prev_lim = lim_start
         for i, d in enumerate(AVAIL_D):
             lim = float(d) / d_max
             hex_col = distinct_colors[i]
-            
+
             cs.append([prev_lim, hex_col])
             cs.append([lim, hex_col])
             prev_lim = lim
