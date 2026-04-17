@@ -184,21 +184,11 @@ fea-rebar --fc 30 --fy 420 --diameter 16 --comb input/kombinasi_beban.csv --no-m
 # Analisis Geser (Shear) dengan spasi sengkang 150x150 mm
 fea-rebar --shear --shear-spacing-long 150 --shear-spacing-trans 150 --comb input/kombinasi_beban.csv --no-mesh
 ```
-### `fea-ui` — Interactive Web UI (Dashboard)
-
-Antarmuka grafis berbasis browser. User cukup **drag-drop CSV** — tidak perlu mengetik perintah CLI. Menggunakan **Plotly** interaktif (zoom, pan, hover) untuk display, dan **Matplotlib** untuk save PNG.
-
-```bash
-fea-ui    # Membuka browser otomatis ke http://localhost:8501
-```
-
-Atau tanpa install, download `run_fea.bat` dari [GitHub Releases](https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/releases), lalu double-click di folder kerja.
-
-**Fitur UI (v1.6.0):**
-- **📊 Contour Plot** — Display Only / Save Only / Display & Save. Kini dengan **Symmetric Colorbar** (skala seimbang nilai +/-).
-- **📋 Report** — Generate MD atau Typst, preview langsung di browser.
-- **🧮 Rebar Analysis** — Zonasi interaktif untuk tulangan lentur & tulangan geser (baru!) sekaligus mendeteksi penampang tipis otomatis (SECTION INADEQUATE).
-- **🛡️ Secure Sequential Save** — Mesin penyimpanan gambar yang telah dioptimalkan untuk Windows agar tidak crash/error saat export masal.
+### `fea-ui` — Interactive Web UI [DEPRECATED]
+> ⚠️ **Status: Deprecated**
+> Fitur UI berbasis Streamlit ini telah dinonaktifkan dari status pengembangan utama karena keterbatasan stabilitas framework pada komputasi skala besar/multiprocessing. Sangat disarankan untuk menggunakan perintah CLI (`fea-plot`, `fea-report`, `fea-rebar`) untuk kinerja 100x lebih reliabel dan cepat.
+> 
+> *Untuk melihat dokumentasi legacy `fea-ui`, jalankan perintah ini (akan ada delay 3 detik peringatan sebelum server menyala).*
 
 ---
 
