@@ -44,7 +44,7 @@ def generate_plot_worker(task):
     try:
         # Guarantee thread-local figure exists
         if not hasattr(thread_local, "fig"):
-            # Use strictly Object-Oriented API to prevent pyplot state-machine crashes in Streamlit multithreading
+            # Use strictly Object-Oriented API to prevent pyplot state-machine crashes in multiprocessing
             fig = Figure(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
             FigureCanvasAgg(fig)
             thread_local.fig = fig

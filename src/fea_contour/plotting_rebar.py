@@ -50,7 +50,7 @@ def generate_rebar_plot_worker(task):
     """
     try:
         if not hasattr(thread_local_rb, "fig"):
-            # Use strictly Object-Oriented API to prevent pyplot state-machine crashes in Streamlit multithreading
+            # Use strictly Object-Oriented API to prevent pyplot state-machine crashes in multiprocessing
             fig = Figure(figsize=PLOT_FIGSIZE, dpi=PLOT_DPI_WORKER)
             FigureCanvasAgg(fig)
             thread_local_rb.fig = fig
