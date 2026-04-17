@@ -1,6 +1,6 @@
 [project]
 name = "fea-contour-plotter"
-version = "1.5.0"
+version = "1.6.0"
 description = "FEA 2D Contour Plot Generator — Midas Civil Post-Processing Tool"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,8 +14,6 @@ dependencies = [
     "numpy>=1.24",
     "matplotlib>=3.7",
     "tqdm>=4.65",
-    "streamlit>=1.30",
-    "plotly>=5.18",
     "scipy>=1.11",
 ]
 
@@ -23,7 +21,6 @@ dependencies = [
 fea-plot = "fea_contour.cli_plot:entry_point"
 fea-report = "fea_contour.cli_report:entry_point"
 fea-rebar = "fea_contour.cli_rebar:entry_point"
-fea-ui = "fea_contour.cli_ui:entry_point"
 
 [build-system]
 requires = ["hatchling"]

@@ -184,13 +184,7 @@ fea-rebar --fc 30 --fy 420 --diameter 16 --comb input/kombinasi_beban.csv --no-m
 # Analisis Geser (Shear) dengan spasi sengkang 150x150 mm
 fea-rebar --shear --shear-spacing-long 150 --shear-spacing-trans 150 --comb input/kombinasi_beban.csv --no-mesh
 ```
-### `fea-ui` — Interactive Web UI [DEPRECATED]
-> ⚠️ **Status: Deprecated**
-> Fitur UI berbasis Streamlit ini telah dinonaktifkan dari status pengembangan utama karena keterbatasan stabilitas framework pada komputasi skala besar/multiprocessing. Sangat disarankan untuk menggunakan perintah CLI (`fea-plot`, `fea-report`, `fea-rebar`) untuk kinerja 100x lebih reliabel dan cepat.
-> 
-> *Untuk melihat dokumentasi legacy `fea-ui`, jalankan perintah ini (akan ada delay 3 detik peringatan sebelum server menyala).*
 
----
 
 ## 🎨 Contour Methods
 
