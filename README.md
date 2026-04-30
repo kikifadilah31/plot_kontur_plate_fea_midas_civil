@@ -15,9 +15,13 @@ Hanya butuh [uv](https://docs.astral.sh/uv/) terinstall di komputer.
 # Install permanen ke PATH
 uv tool install git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil
 
-# Lalu jalankan dari folder yang berisi input/
+# Jika di masa depan ada update di GitHub, perbarui dengan:
+uv tool upgrade fea-contour-plotter
+
+# Lalu jalankan kapan saja dari terminal (pastikan berada di folder yang berisi folder input/)
 fea-plot --method average-nodal --no-mesh
 fea-report --master --comb input/kombinasi_beban.csv
+fea-rebar --fc 30 --fy 420
 ```
 
 Atau jalankan sekali tanpa install:
