@@ -158,8 +158,9 @@ fea-rebar [OPTIONS]
 | `--fy` | Kuat leleh baja (MPa) | `420` |
 | `--thickness` | Tebal pelat dalam meter | `0.400` |
 | `--cover` | Selimut beton bersih (mm) | `40` |
-| `--diameter` | Diameter tulangan (mm). Jika diset, output = plot **Spasi** | *(none)* |
-| `--spacing` | Spasi tulangan (mm). Jika diset, output = plot **Diameter** | `150` |
+| `--diameter` | Kode/Diameter tulangan (misal: `16`, `2D25`). Jika diset, output = plot **Spasi** | *(none)* |
+| `--spacing` | Spasi tulangan (mm). Jika diset, output = plot **Diameter/Konfigurasi** | `150` |
+| `--rebar-select`| Pilih daftar konfigurasi tulangan untuk Mode B (misal: `16 22 2D25 2D32`) | *(default: D13-D32)* |
 | `--shear` | Mengaktifkan perhitungan **tulangan geser** (Av/s dan diameter dari Vxx/Vyy) | `False` |
 | `--shear-spacing-long` | Spasi sengkang arah memanjang (longitudinal) dalam mm | `150` |
 | `--shear-spacing-trans` | Spasi sengkang melintang (transversal) dalam mm | `150` |
@@ -168,6 +169,9 @@ fea-rebar [OPTIONS]
 | `--comb-select` | Wildcard filter untuk memproses kombinasi tertentu (cth: `K_1*`) | `*` |
 | `--theme` | Tema visual plot (`light` atau `dark`) | `light` |
 
+> **Konfigurasi Tulangan Kustom:**
+> Sistem mendukung 24 variasi tulangan (D13–4D32) termasuk *bundle* (misal: 2D25, 3D32). Gunakan argumen `--rebar-select` untuk membatasi opsi mana saja yang dimunculkan pada visualisasi kontur. Hal ini dapat menghilangkan peringatan *Section Inadequate* palsu akibat batas default D32.
+
 > **Perilaku Superposisi:**
 > - Jika `--comb` **tidak** diatur: Program menghitung tulangan untuk setiap Load Case Tunggal (berguna untuk beban ultimate yang sudah tergabung seperti *pilecap*).
 > - Jika `--comb` diatur: Program **hanya** menghitung tulangan untuk Kombinasi Beban yang sesuai filter.
@@ -175,11 +179,14 @@ fea-rebar [OPTIONS]
 
 **Contoh:**
 ```bash
-# Mode Output Diameter (cari diameter tulangan terdekat jika dipasang jarak 150mm)
-fea-rebar --fc 30 --fy 420 --spacing 150 --comb input/kombinasi_beban.csv --no-mesh
+# Mode Output Konfigurasi: cari konfigurasi tulangan dari list pilihan jika dipasang jarak 150mm
+fea-rebar --fc 30 --fy 420 --spacing 150 --rebar-select 16 22 25 2D25 2D32 --comb input/kombinasi_beban.csv --no-mesh
 
-# Mode Output Spasi (cari jarak spasi pakai jika kita menggunakan besi D16)
-fea-rebar --fc 30 --fy 420 --diameter 16 --comb input/kombinasi_beban.csv --no-mesh --comb-select "K_1*"
+# Mode Output Spasi: cari jarak spasi aman jika kita menggunakan besi bundle 2D25
+fea-rebar --fc 30 --fy 420 --diameter 2D25 --comb input/kombinasi_beban.csv --no-mesh
+
+# Mode Default (Backward Compatible): cari diameter tunggal terdekat (D13 - D32 max)
+fea-rebar --fc 30 --fy 420 --spacing 150 --comb input/kombinasi_beban.csv --no-mesh
 
 # Analisis Geser (Shear) dengan spasi sengkang 150x150 mm
 fea-rebar --shear --shear-spacing-long 150 --shear-spacing-trans 150 --comb input/kombinasi_beban.csv --no-mesh
