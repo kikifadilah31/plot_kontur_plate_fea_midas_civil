@@ -12,6 +12,8 @@ from datetime import datetime
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
 
+from . import __version__
+
 from .config import (
     DEFAULT_THICKNESS, ALL_METHODS, OUTPUT_FOLDER,
 )
@@ -222,6 +224,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='FEA Rebar Analysis & Contour Plot Generator'
     )
+    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     parser.add_argument('--kordinat', type=str, help='Path to coordinate CSV')
     parser.add_argument('--connectivity', type=str, help='Path to connectivity CSV')
     parser.add_argument('--gaya', type=str, help='Path to force/moment CSV')
