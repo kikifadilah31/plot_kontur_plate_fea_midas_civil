@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Input and Output data
+/input/
+/output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup
+backup/
+
+# Qwen agent data
+.qwen/
+
+# Reference
+_ref/
+
+# UV lock (optional: include if you want reproducible installs)
+# uv.lock
+
+# Clean repository ignores (Local files)
+.gitignore
+.gitattributes
+PROJECT_DOCUMENTATION.md
+backup_script.py
+test_uv_package.py
+test_refactoring.py
