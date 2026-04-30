@@ -101,7 +101,7 @@ def _build_rebar_tasks(
         x, y, As, triangles, polygons, centroids,
         f'As Required — {layer_label} ({dir_label})',
         'mm²/m',
-        f'(Method: {method.replace("-", " ").title()} | d_eff = {d_eff:.0f} mm)',
+        f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | d_eff = {d_eff:.0f} mm)',
         load_name, output_folder, method, show_mesh, theme,
         f'As_{case_label}',
         None,  # config_labels (not applicable for As plot)
@@ -126,7 +126,7 @@ def _build_rebar_tasks(
             x, y, spacing, triangles, polygons, centroids,
             f'Spasi Tulangan {label_code} — {layer_label} ({dir_label})',
             'mm',
-            f'(Method: {method.replace("-", " ").title()} | d_eff = {d_eff:.0f} mm)',
+            f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | d_eff = {d_eff:.0f} mm)',
             load_name, output_folder, method, show_mesh, theme,
             f'spacing_{label_code}_{case_label}',
             None,  # config_labels (not applicable for spacing plot)
@@ -142,7 +142,7 @@ def _build_rebar_tasks(
                 x, y, cfg_idx, triangles, polygons, centroids,
                 f'Konfigurasi Tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
                 'kode',
-                f'(Method: {method.replace("-", " ").title()} | d_eff = {d_eff:.0f} mm)',
+                f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | d_eff = {d_eff:.0f} mm)',
                 load_name, output_folder, method, show_mesh, theme,
                 f'config_s{int(spacing_input)}_{case_label}',
                 sorted_codes,  # config_labels for colorbar
@@ -154,7 +154,7 @@ def _build_rebar_tasks(
                 x, y, D_selected, triangles, polygons, centroids,
                 f'Diameter Tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
                 'mm',
-                f'(Method: {method.replace("-", " ").title()} | d_eff = {d_eff:.0f} mm)',
+                f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | d_eff = {d_eff:.0f} mm)',
                 load_name, output_folder, method, show_mesh, theme,
                 f'diameter_s{int(spacing_input)}_{case_label}',
                 None,  # config_labels (use default AVAILABLE_DIAMETERS)
@@ -195,7 +195,7 @@ def _build_shear_tasks(
         x, y, Av_s, triangles, polygons, centroids,
         f'Av/s Geser — {dir_label}',
         '(mm\u00b2/mm) per pias 1m',
-        f'(Method: {method.replace("-", " ").title()} | dv = {dv:.0f} mm)',
+        f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | dv = {dv:.0f} mm)',
         load_name, output_folder, method, show_mesh, theme,
         f'Avs_{case_label}',
         None,  # config_labels
@@ -209,7 +209,7 @@ def _build_shear_tasks(
         x, y, D_shear, triangles, polygons, centroids,
         f'Diameter Sengkang s={s_long_label}\u00d7{s_trans_label}mm — {dir_label}',
         'mm',
-        f'(Method: {method.replace("-", " ").title()} | dv = {dv:.0f} mm)',
+        f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | dv = {dv:.0f} mm)',
         load_name, output_folder, method, show_mesh, theme,
         f'shear_diameter_s{s_long_label}x{s_trans_label}_{case_label}',
         None,  # config_labels
@@ -562,7 +562,7 @@ def main():
                     x, y, As_env, tris, polys, cents,
                     f'ENVELOPE As — {layer_label} ({dir_label})',
                     'mm²/m',
-                    f'(Maximum dari seluruh kasus | d_eff = {d_eff:.0f} mm)',
+                    f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | d_eff = {d_eff:.0f} mm)',
                     'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_As_{case_label}',
                     None,  # config_labels
@@ -584,7 +584,7 @@ def main():
                         x, y, spacing_env, tris, polys, cents,
                         f'ENVELOPE Spasi {label_code} — {layer_label} ({dir_label})',
                         'mm',
-                        f'(Maximum dari seluruh kasus | d_eff = {d_eff:.0f} mm)',
+                        f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | d_eff = {d_eff:.0f} mm)',
                         'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                         f'ENVELOPE_spacing_{label_code}_{case_label}',
                         None,  # config_labels
@@ -598,7 +598,7 @@ def main():
                             x, y, cfg_idx, tris, polys, cents,
                             f'ENVELOPE Konfigurasi s={int(spacing_input)}mm — {layer_label} ({dir_label})',
                             'kode',
-                            f'(Maximum dari seluruh kasus | d_eff = {d_eff:.0f} mm)',
+                            f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | d_eff = {d_eff:.0f} mm)',
                             'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                             f'ENVELOPE_config_s{int(spacing_input)}_{case_label}',
                             sorted_codes,  # config_labels
@@ -609,7 +609,7 @@ def main():
                             x, y, D_env, tris, polys, cents,
                             f'ENVELOPE Diameter s={int(spacing_input)}mm — {layer_label} ({dir_label})',
                             'mm',
-                            f'(Maximum dari seluruh kasus | d_eff = {d_eff:.0f} mm)',
+                            f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | d_eff = {d_eff:.0f} mm)',
                             'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                             f'ENVELOPE_diameter_s{int(spacing_input)}_{case_label}',
                             None,  # config_labels
@@ -634,7 +634,7 @@ def main():
                     x, y, Av_s_env, tris, polys, cents,
                     f'ENVELOPE Av/s Geser — {dir_label}',
                     '(mm²/mm) per pias 1m',
-                    f'(Maximum dari seluruh kasus | dv = {dv:.0f} mm)',
+                    f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | dv = {dv:.0f} mm)',
                     'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_Avs_{case_label}',
                     None,  # config_labels
@@ -653,7 +653,7 @@ def main():
                     x, y, D_shear_env, tris, polys, cents,
                     f'ENVELOPE Diameter Sengkang s={int(s_l)}×{int(s_t)}mm — {dir_label}',
                     'mm',
-                    f'(Maximum dari seluruh kasus | dv = {dv:.0f} mm)',
+                    f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | dv = {dv:.0f} mm)',
                     'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_shear_D_s{int(s_l)}x{int(s_t)}_{case_label}',
                     None,  # config_labels
