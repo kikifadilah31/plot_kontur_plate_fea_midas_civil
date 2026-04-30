@@ -22,6 +22,127 @@ PHI_SHEAR = 0.75
 BETA_SHEAR = 2.0   # β for normal-weight concrete (always 2.0)
 SHEAR_DIAMETERS = np.array([10, 13, 16, 19, 22, 25], dtype=float)  # mm (stirrup sizes)
 
+# =============================================================================
+# Rebar Configuration Table (hardcoded from _ref/List_konfigurasi_tulangan.csv)
+# Maps: Kode → (Diameter_mm, Jumlah, Luas_mm2)
+# =============================================================================
+REBAR_CONFIG_TABLE = {
+    '13':   (13, 1, 133),
+    '16':   (16, 1, 201),
+    '19':   (19, 1, 284),
+    '22':   (22, 1, 380),
+    '25':   (25, 1, 491),
+    '32':   (32, 1, 804),
+    '2D13': (13, 2, 265),
+    '2D16': (16, 2, 402),
+    '2D19': (19, 2, 567),
+    '2D22': (22, 2, 760),
+    '2D25': (25, 2, 982),
+    '2D32': (32, 2, 1608),
+    '3D13': (13, 3, 398),
+    '3D16': (16, 3, 603),
+    '3D19': (19, 3, 851),
+    '3D22': (22, 3, 1140),
+    '3D25': (25, 3, 1473),
+    '3D32': (32, 3, 2413),
+    '4D13': (13, 4, 531),
+    '4D16': (16, 4, 804),
+    '4D19': (19, 4, 1134),
+    '4D22': (22, 4, 1521),
+    '4D25': (25, 4, 1963),
+    '4D32': (32, 4, 3217),
+}
+
+
+def get_config_area(code):
+    """
+    Get the area (mm²) of a rebar configuration by its code.
+
+    Parameters
+    ----------
+    code : str
+        Configuration code, e.g. '16', '2D25', '3D32'.
+
+    Returns
+    -------
+    float : area in mm².
+
+    Raises
+    ------
+    ValueError : if code is not found in REBAR_CONFIG_TABLE.
+    """
+    code = str(code).upper().strip()
+    # Accept bare numbers: '16' → '16'
+    if code in REBAR_CONFIG_TABLE:
+        return float(REBAR_CONFIG_TABLE[code][2])
+    raise ValueError(
+        f"Kode konfigurasi '{code}' tidak ditemukan. "
+        f"Kode tersedia: {', '.join(sorted(REBAR_CONFIG_TABLE.keys()))}"
+    )
+
+
+def get_available_config_codes():
+    """Return all available config codes sorted by area ascending."""
+    return sorted(REBAR_CONFIG_TABLE.keys(),
+                  key=lambda k: REBAR_CONFIG_TABLE[k][2])
+
+
+def select_config_from_As(As, config_codes, spacing):
+    """
+    Select the smallest rebar configuration that satisfies As_required.
+
+    For each node, computes:
+      A_bar_req = As × spacing / 1000
+    Then finds the smallest config (by area) from config_codes
+    whose area ≥ A_bar_req.
+
+    Parameters
+    ----------
+    As : array-like
+        Required steel area in mm²/m.
+    config_codes : list of str
+        User-selected configuration codes, e.g. ['16', '22', '2D25'].
+    spacing : float
+        Bar spacing in mm.
+
+    Returns
+    -------
+    numpy array : config index (1-based) for each node.
+        0 = no rebar needed (As ≈ 0).
+        np.nan = section inadequate (exceeds largest config).
+    list of str : sorted config codes (ascending by area).
+    list of float : sorted config areas (ascending).
+    """
+    As = np.asarray(As, dtype=float)
+
+    # Sort configs by area ascending
+    sorted_codes = sorted(config_codes,
+                          key=lambda c: REBAR_CONFIG_TABLE[c.upper()][2])
+    sorted_areas = np.array([REBAR_CONFIG_TABLE[c.upper()][2]
+                             for c in sorted_codes], dtype=float)
+
+    result = np.zeros_like(As)
+    valid = (As > 1e-6) & ~np.isnan(As)
+
+    if not np.any(valid):
+        result[np.isnan(As)] = np.nan
+        return result, sorted_codes, sorted_areas.tolist()
+
+    A_bar_req = As[valid] * spacing / 1000.0
+
+    # For each point, find smallest config with area >= A_bar_req
+    matched = np.full(np.sum(valid), np.nan)
+    for i, a_req in enumerate(A_bar_req):
+        candidates = np.where(sorted_areas >= a_req)[0]
+        if len(candidates) > 0:
+            matched[i] = float(candidates[0] + 1)  # 1-based index
+
+    result[valid] = matched
+    result[np.isnan(As)] = np.nan
+
+    return result, sorted_codes, sorted_areas.tolist()
+
+
 
 def calc_effective_depth(h_mm, cover, D, direction, layer):
     """

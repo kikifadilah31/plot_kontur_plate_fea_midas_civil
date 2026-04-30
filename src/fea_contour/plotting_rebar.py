@@ -1,29 +1,26 @@
 """
-Plotting engine for rebar analysis — specialized contour visualization.
-Uses sequential colormap (YlOrRd) instead of diverging (RdBu_r).
-Handles NaN masking for Section Inadequate zones.
+Rebar-specific plotting engine — Matplotlib OO API for multiprocessing.
 """
 
 import os
-
-import matplotlib
-matplotlib.use('Agg')  # CRITICAL: Must be before pyplot import
-
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import matplotlib.cm as cm
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib import cm
+import matplotlib.colors as mcolors
 from matplotlib.collections import PolyCollection
 
-from .config import PLOT_FIGSIZE, PLOT_DPI_WORKER, PLOT_DPI_SAVE, CONTOUR_LEVELS
+from .config import (
+    PLOT_FIGSIZE, PLOT_DPI_WORKER, PLOT_DPI_SAVE, CONTOUR_LEVELS,
+)
 from .math_utils import safe_filename
 
-# =============================================================================
-# Rebar-specific colormap
-# =============================================================================
+# Rebar-specific colormap (for continuous As plots)
 REBAR_CMAP = 'YlOrRd'
+
+# Colors
 INADEQUATE_COLOR = '#404040'  # Dark Gray for Section Inadequate zones
 
 import threading
@@ -43,10 +40,11 @@ def generate_rebar_plot_worker(task):
     """
     Rebar-specific plotting worker with figure recycling.
 
-    Task tuple:
+    Task tuple (16 elements):
         (x, y, z, triangles, polygons, centroids,
          plot_label, unit_label, subtitle, load_name,
-         output_folder, contour_method, show_mesh, theme, filename_tag)
+         output_folder, contour_method, show_mesh, theme, filename_tag,
+         config_labels)
     """
     try:
         if not hasattr(thread_local_rb, "fig"):
@@ -60,7 +58,8 @@ def generate_rebar_plot_worker(task):
         rebar_ax = thread_local_rb.ax
         (x, y, z, triangles, polygons, centroids,
          plot_label, unit_label, subtitle, load_name,
-         output_folder, contour_method, show_mesh, theme, filename_tag) = task
+         output_folder, contour_method, show_mesh, theme, filename_tag,
+         config_labels) = task
 
         is_dark = theme == 'dark'
         bg_col = '#1E1E1E' if is_dark else '#FFFFFF'
@@ -110,9 +109,53 @@ def generate_rebar_plot_worker(task):
         # Detect plot type from filename_tag
         fn_lower = filename_tag.lower()
         is_diameter_plot = 'diameter' in fn_lower or '_shear_d_' in fn_lower
+        is_config_plot = config_labels is not None
         is_shear = 'shear' in fn_lower
 
-        if is_diameter_plot:
+        # Extended categorical palette (enough for up to 25 configs)
+        CATEGORICAL_COLORS = [
+            '#FFFFFF',  # 0 (Safe / no rebar) -> White
+            '#3498DB',  # 1 (Blue)
+            '#2ECC71',  # 2 (Green)
+            '#F1C40F',  # 3 (Yellow)
+            '#E67E22',  # 4 (Orange)
+            '#E74C3C',  # 5 (Red)
+            '#9B59B6',  # 6 (Purple)
+            '#FF1493',  # 7 (Deep Pink)
+            '#00CED1',  # 8 (Dark Turquoise)
+            '#FF6347',  # 9 (Tomato)
+            '#00FA9A',  # 10 (Medium Spring Green)
+            '#BA55D3',  # 11 (Medium Orchid)
+            '#FF8C00',  # 12 (Dark Orange)
+            '#4169E1',  # 13 (Royal Blue)
+            '#DC143C',  # 14 (Crimson)
+            '#00FF7F',  # 15 (Spring Green)
+            '#8B008B',  # 16 (Dark Magenta)
+            '#FFD700',  # 17 (Gold)
+            '#1E90FF',  # 18 (Dodger Blue)
+            '#FF4500',  # 19 (Orange Red)
+            '#7B68EE',  # 20 (Medium Slate Blue)
+            '#32CD32',  # 21 (Lime Green)
+            '#FF69B4',  # 22 (Hot Pink)
+            '#20B2AA',  # 23 (Light Sea Green)
+            '#CD853F',  # 24 (Peru)
+        ]
+
+        if is_config_plot:
+            # Custom config mode: z values are 1-based config indices
+            n_configs = len(config_labels)
+            # Boundaries: [-0.5, 0.5, 1.5, 2.5, ..., n+0.5, n+1.5(overflow)]
+            boundaries = [-0.5, 0.5] + [i + 0.5 for i in range(1, n_configs + 1)] + [n_configs + 1.5]
+            n_bins = len(boundaries) - 1
+
+            cmap_colors = CATEGORICAL_COLORS[:n_bins]
+            # Last bin = overflow / inadequate
+            cmap_colors[-1] = mcolors.to_rgba(INADEQUATE_COLOR)
+            cmap = mcolors.ListedColormap(cmap_colors)
+            norm = mcolors.BoundaryNorm(boundaries, cmap.N)
+            levels = boundaries
+
+        elif is_diameter_plot:
             from matplotlib.colors import BoundaryNorm, ListedColormap
             if is_shear:
                 from .rebar import SHEAR_DIAMETERS as AVAIL_D
@@ -123,20 +166,7 @@ def generate_rebar_plot_worker(task):
             boundaries = [-0.1, 0.1] + list(AVAIL_D) + [AVAIL_D[-1] + 3]
             n_bins = len(boundaries) - 1
             
-            # Explicit highly contrasting categorical palette!
-            distinct_colors = [
-                '#FFFFFF',  # 0.0 (Safe / 0) -> White
-                '#3498DB',  # Bin 1 (Blue)
-                '#2ECC71',  # Bin 2 (Green)
-                '#F1C40F',  # Bin 3 (Yellow)
-                '#E67E22',  # Bin 4 (Orange)
-                '#E74C3C',  # Bin 5 (Red)
-                '#9B59B6',  # Bin 6 (Purple)
-                '#FF1493',  # Overflows...
-                '#00FFFF',  # Overflows...
-            ]
-            
-            cmap_colors = distinct_colors[:n_bins]
+            cmap_colors = CATEGORICAL_COLORS[:n_bins]
             cmap_colors[-1] = mcolors.to_rgba(INADEQUATE_COLOR)
             cmap = mcolors.ListedColormap(cmap_colors)
             norm = mcolors.BoundaryNorm(boundaries, cmap.N)
@@ -224,7 +254,14 @@ def generate_rebar_plot_worker(task):
                 max_xy[0], max_xy[1], 'D', ms=12, color='#DC143C',
                 markeredgecolor='white', markeredgewidth=1.5, zorder=10,
             )
-            if is_diameter_plot:
+            if is_config_plot:
+                # Config index → label
+                cfg_int = int(max_val)
+                if 1 <= cfg_int <= len(config_labels):
+                    max_text = f'MAX: {config_labels[cfg_int - 1]}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
+                else:
+                    max_text = f'MAX: idx={cfg_int}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
+            elif is_diameter_plot:
                 max_text = f'MAX: D{int(max_val)}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
             else:
                 max_text = f'MAX: {max_val:.1f} {unit_label}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
@@ -267,9 +304,18 @@ def generate_rebar_plot_worker(task):
         cax = divider.append_axes("right", size="2%", pad=0.4)
         cbar = rebar_fig.colorbar(pc, cax=cax, orientation='vertical')
 
-        if is_diameter_plot:
+        if is_config_plot:
+            # Ticks at config index centers: 0, 1, 2, ..., n
+            tick_vals = [0] + list(range(1, len(config_labels) + 1))
+            tick_labels = ['OK'] + config_labels
+            cbar.set_ticks(tick_vals)
+            cbar.set_ticklabels(tick_labels)
+        elif is_diameter_plot:
             # Discrete ticks at each available diameter
-            from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
+            if is_shear:
+                from .rebar import SHEAR_DIAMETERS as AVAIL_D
+            else:
+                from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
             tick_vals = [0] + list(AVAIL_D)
             tick_labels = ['0'] + [f'D{int(d)}' for d in AVAIL_D]
             cbar.set_ticks(tick_vals)

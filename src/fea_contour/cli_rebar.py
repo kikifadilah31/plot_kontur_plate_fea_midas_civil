@@ -23,10 +23,12 @@ from .values import ValueMapper
 from .rebar import (
     DEFAULT_FC, DEFAULT_FY, DEFAULT_COVER, PHI_FLEXURE,
     AVAILABLE_DIAMETERS, SHEAR_DIAMETERS,
+    REBAR_CONFIG_TABLE,
     calc_effective_depth, calc_as_required,
     calc_spacing_from_diameter, calc_diameter_from_spacing,
     check_spacing_limits,
     calc_shear_Av_per_s, calc_shear_diameter,
+    get_config_area, select_config_from_As,
 )
 from .plotting_rebar import init_rebar_worker, generate_rebar_plot_worker
 
@@ -58,10 +60,17 @@ def _build_rebar_tasks(
     diameter_input, spacing_input, mode,
     direction, layer, case_label,
     load_name, output_folder, method, show_mesh, theme,
+    rebar_select_codes=None, config_code=None, config_area=None,
 ):
     """
     Build plotting task tuples for one rebar case.
     Returns list of task tuples (As plot + spacing/diameter plot).
+
+    When rebar_select_codes is provided, Mode B uses custom config matching
+    instead of standard calc_diameter_from_spacing.
+
+    When config_code/config_area is provided, Mode A uses config area
+    instead of single bar area for spacing calculation.
     """
     tasks = []
 
@@ -87,7 +96,7 @@ def _build_rebar_tasks(
     layer_label = "Tulangan Bawah" if layer == 'bottom' else "Tulangan Atas"
     dir_label = "Arah X" if direction == 'x' else "Arah Y"
 
-    # --- Task 1: As_required plot ---
+    # --- Task 1: As_required plot (always shown) ---
     tasks.append((
         x, y, As, triangles, polygons, centroids,
         f'As Required — {layer_label} ({dir_label})',
@@ -95,32 +104,61 @@ def _build_rebar_tasks(
         f'(Method: {method.replace("-", " ").title()} | d_eff = {d_eff:.0f} mm)',
         load_name, output_folder, method, show_mesh, theme,
         f'As_{case_label}',
+        None,  # config_labels (not applicable for As plot)
     ))
 
-    # --- Task 2: Spacing or Diameter plot ---
+    # --- Task 2: Spacing or Diameter/Config plot ---
     if mode == 'spacing':
-        # Mode A: given diameter, output spacing
-        spacing = calc_spacing_from_diameter(As, diameter_input)
-        spacing = check_spacing_limits(spacing, h_mm, diameter_input)
+        # Mode A: given config code, output spacing
+        if config_code and config_area:
+            # Use config area (e.g. 2D25 = 982 mm²) for spacing calc
+            spacing = np.full_like(As, np.inf)
+            active = (As > 1e-6) & ~np.isnan(As)
+            spacing[active] = config_area * 1000.0 / As[active]
+            spacing = check_spacing_limits(spacing, h_mm, diameter_input)
+            label_code = config_code
+        else:
+            spacing = calc_spacing_from_diameter(As, diameter_input)
+            spacing = check_spacing_limits(spacing, h_mm, diameter_input)
+            label_code = f'D{int(diameter_input)}'
+
         tasks.append((
             x, y, spacing, triangles, polygons, centroids,
-            f'Spasi Tulangan D{int(diameter_input)} — {layer_label} ({dir_label})',
+            f'Spasi Tulangan {label_code} — {layer_label} ({dir_label})',
             'mm',
             f'(Method: {method.replace("-", " ").title()} | d_eff = {d_eff:.0f} mm)',
             load_name, output_folder, method, show_mesh, theme,
-            f'spacing_D{int(diameter_input)}_{case_label}',
+            f'spacing_{label_code}_{case_label}',
+            None,  # config_labels (not applicable for spacing plot)
         ))
     else:
-        # Mode B: given spacing, output diameter
-        D_selected = calc_diameter_from_spacing(As, spacing_input)
-        tasks.append((
-            x, y, D_selected, triangles, polygons, centroids,
-            f'Diameter Tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
-            'mm',
-            f'(Method: {method.replace("-", " ").title()} | d_eff = {d_eff:.0f} mm)',
-            load_name, output_folder, method, show_mesh, theme,
-            f'diameter_s{int(spacing_input)}_{case_label}',
-        ))
+        # Mode B: given spacing, output diameter or config
+        if rebar_select_codes:
+            # Custom config matching
+            cfg_idx, sorted_codes, sorted_areas = select_config_from_As(
+                As, rebar_select_codes, spacing_input,
+            )
+            tasks.append((
+                x, y, cfg_idx, triangles, polygons, centroids,
+                f'Konfigurasi Tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+                'kode',
+                f'(Method: {method.replace("-", " ").title()} | d_eff = {d_eff:.0f} mm)',
+                load_name, output_folder, method, show_mesh, theme,
+                f'config_s{int(spacing_input)}_{case_label}',
+                sorted_codes,  # config_labels for colorbar
+            ))
+        else:
+            # Standard diameter matching (backward compatible)
+            D_selected = calc_diameter_from_spacing(As, spacing_input)
+            tasks.append((
+                x, y, D_selected, triangles, polygons, centroids,
+                f'Diameter Tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+                'mm',
+                f'(Method: {method.replace("-", " ").title()} | d_eff = {d_eff:.0f} mm)',
+                load_name, output_folder, method, show_mesh, theme,
+                f'diameter_s{int(spacing_input)}_{case_label}',
+                None,  # config_labels (use default AVAILABLE_DIAMETERS)
+            ))
 
     return tasks
 
@@ -160,6 +198,7 @@ def _build_shear_tasks(
         f'(Method: {method.replace("-", " ").title()} | dv = {dv:.0f} mm)',
         load_name, output_folder, method, show_mesh, theme,
         f'Avs_{case_label}',
+        None,  # config_labels
     ))
 
     # --- Task 2: Diameter plot ---
@@ -173,6 +212,7 @@ def _build_shear_tasks(
         f'(Method: {method.replace("-", " ").title()} | dv = {dv:.0f} mm)',
         load_name, output_folder, method, show_mesh, theme,
         f'shear_diameter_s{s_long_label}x{s_trans_label}_{case_label}',
+        None,  # config_labels
     ))
 
     return tasks
@@ -193,10 +233,14 @@ def main():
                         help=f"Steel yield strength in MPa (default: {DEFAULT_FY})")
     parser.add_argument('--cover', type=float, default=DEFAULT_COVER,
                         help=f"Clear concrete cover in mm (default: {DEFAULT_COVER})")
-    parser.add_argument('--diameter', type=float, default=None,
-                        help='Bar diameter in mm (Mode A: output = spacing)')
+    parser.add_argument('--diameter', type=str, default=None,
+                        help='Rebar config code for Mode A (output = spacing). '
+                             'Examples: 16, 2D25, 3D32')
     parser.add_argument('--spacing', type=float, default=150,
-                        help='Bar spacing in mm (Mode B: output = diameter, default: 150)')
+                        help='Bar spacing in mm (Mode B: output = config, default: 150)')
+    parser.add_argument('--rebar-select', type=str, nargs='+', default=None,
+                        help='Select rebar configs for Mode B output. '
+                             'Examples: --rebar-select 16 22 25 2D25 2D32')
     parser.add_argument('--output', type=str, default=OUTPUT_FOLDER,
                         help=f'Output base folder (default: {OUTPUT_FOLDER})')
     parser.add_argument('--no-mesh', action='store_true', help='Hide mesh wireframe')
@@ -221,17 +265,44 @@ def main():
     show_mesh = not args.no_mesh
     h_mm = args.thickness * 1000  # m → mm
 
+    # Validate --rebar-select codes if provided
+    rebar_select_codes = None
+    if args.rebar_select:
+        rebar_select_codes = [c.upper().strip() for c in args.rebar_select]
+        for code in rebar_select_codes:
+            if code not in REBAR_CONFIG_TABLE:
+                print(f"[ERROR] Kode konfigurasi '{code}' tidak dikenali.")
+                print(f"  Kode tersedia: {', '.join(sorted(REBAR_CONFIG_TABLE.keys()))}")
+                sys.exit(1)
+
     # Determine mode
     if args.diameter is not None:
         mode = 'spacing'
-        diameter_input = args.diameter
+        config_code = args.diameter.upper().strip()
+        if config_code not in REBAR_CONFIG_TABLE:
+            # Try as bare number (backward compat: --diameter 16)
+            if config_code.isdigit() and config_code in REBAR_CONFIG_TABLE:
+                pass
+            else:
+                print(f"[ERROR] Kode konfigurasi '{config_code}' tidak dikenali.")
+                print(f"  Kode tersedia: {', '.join(sorted(REBAR_CONFIG_TABLE.keys()))}")
+                sys.exit(1)
+        config_area = get_config_area(config_code)
+        # Extract base diameter for effective depth calc
+        diameter_input = float(REBAR_CONFIG_TABLE[config_code][0])
         spacing_input = None
-        mode_desc = f"Mode A: Input D{int(diameter_input)} -> Output Spasi"
+        mode_desc = f"Mode A: Input {config_code} (As={config_area:.0f} mm²) -> Output Spasi"
     else:
         mode = 'diameter'
+        config_code = None
+        config_area = None
         diameter_input = None
         spacing_input = args.spacing
-        mode_desc = f"Mode B: Input s={int(spacing_input)}mm -> Output Diameter"
+        if rebar_select_codes:
+            codes_str = ', '.join(rebar_select_codes)
+            mode_desc = f"Mode B: Input s={int(spacing_input)}mm -> Output Konfigurasi [{codes_str}]"
+        else:
+            mode_desc = f"Mode B: Input s={int(spacing_input)}mm -> Output Diameter"
 
     # Timestamped output
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -319,6 +390,8 @@ def main():
                     diameter_input, spacing_input, mode,
                     direction, layer, case_label,
                     source_name, folder_path, method, show_mesh, args.theme,
+                    rebar_select_codes=rebar_select_codes,
+                    config_code=config_code, config_area=config_area,
                 )
                 tasks.extend(case_tasks)
 
@@ -492,30 +565,55 @@ def main():
                     f'(Maximum dari seluruh kasus | d_eff = {d_eff:.0f} mm)',
                     'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_As_{case_label}',
+                    None,  # config_labels
                 ))
 
-                # Spacing/Diameter envelope plot
+                # Spacing/Diameter/Config envelope plot
                 if mode == 'spacing':
-                    spacing_env = calc_spacing_from_diameter(As_env, diameter_input)
-                    spacing_env = check_spacing_limits(spacing_env, h_mm, diameter_input)
+                    if config_code and config_area:
+                        spacing_env = np.full_like(As_env, np.inf)
+                        active_env = (As_env > 1e-6) & ~np.isnan(As_env)
+                        spacing_env[active_env] = config_area * 1000.0 / As_env[active_env]
+                        spacing_env = check_spacing_limits(spacing_env, h_mm, diameter_input)
+                        label_code = config_code
+                    else:
+                        spacing_env = calc_spacing_from_diameter(As_env, diameter_input)
+                        spacing_env = check_spacing_limits(spacing_env, h_mm, diameter_input)
+                        label_code = f'D{int(diameter_input)}'
                     all_tasks.append((
                         x, y, spacing_env, tris, polys, cents,
-                        f'ENVELOPE Spasi D{int(diameter_input)} — {layer_label} ({dir_label})',
+                        f'ENVELOPE Spasi {label_code} — {layer_label} ({dir_label})',
                         'mm',
                         f'(Maximum dari seluruh kasus | d_eff = {d_eff:.0f} mm)',
                         'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
-                        f'ENVELOPE_spacing_D{int(diameter_input)}_{case_label}',
+                        f'ENVELOPE_spacing_{label_code}_{case_label}',
+                        None,  # config_labels
                     ))
                 else:
-                    D_env = calc_diameter_from_spacing(As_env, spacing_input)
-                    all_tasks.append((
-                        x, y, D_env, tris, polys, cents,
-                        f'ENVELOPE Diameter s={int(spacing_input)}mm — {layer_label} ({dir_label})',
-                        'mm',
-                        f'(Maximum dari seluruh kasus | d_eff = {d_eff:.0f} mm)',
-                        'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
-                        f'ENVELOPE_diameter_s{int(spacing_input)}_{case_label}',
-                    ))
+                    if rebar_select_codes:
+                        cfg_idx, sorted_codes, sorted_areas = select_config_from_As(
+                            As_env, rebar_select_codes, spacing_input,
+                        )
+                        all_tasks.append((
+                            x, y, cfg_idx, tris, polys, cents,
+                            f'ENVELOPE Konfigurasi s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+                            'kode',
+                            f'(Maximum dari seluruh kasus | d_eff = {d_eff:.0f} mm)',
+                            'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
+                            f'ENVELOPE_config_s{int(spacing_input)}_{case_label}',
+                            sorted_codes,  # config_labels
+                        ))
+                    else:
+                        D_env = calc_diameter_from_spacing(As_env, spacing_input)
+                        all_tasks.append((
+                            x, y, D_env, tris, polys, cents,
+                            f'ENVELOPE Diameter s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+                            'mm',
+                            f'(Maximum dari seluruh kasus | d_eff = {d_eff:.0f} mm)',
+                            'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
+                            f'ENVELOPE_diameter_s{int(spacing_input)}_{case_label}',
+                            None,  # config_labels
+                        ))
 
         # --- Shear Envelope tasks ---
         if args.shear and shear_envelope_data:
@@ -539,6 +637,7 @@ def main():
                     f'(Maximum dari seluruh kasus | dv = {dv:.0f} mm)',
                     'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_Avs_{case_label}',
+                    None,  # config_labels
                 ))
 
                 # Diameter envelope plot
@@ -557,6 +656,7 @@ def main():
                     f'(Maximum dari seluruh kasus | dv = {dv:.0f} mm)',
                     'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_shear_D_s{int(s_l)}x{int(s_t)}_{case_label}',
+                    None,  # config_labels
                 ))
 
         # --- Parallel Plotting ---
