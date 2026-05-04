@@ -21,7 +21,7 @@ echo PENGATURAN VERSI SISTEM
 echo --------------------------------------------
 echo [1] Jalankan Versi Terbaru (Normal)
 echo [2] Update Paksa (Refresh Cache)
-echo [3] Pilih Versi Spesifik (Contoh: v1.7.0)
+echo [3] Pilih Versi Spesifik (Contoh: v1.8.0)
 echo.
 set /p choice="Masukkan pilihan versi (1-3) [Default: 1]: "
 if "%choice%"=="" set choice=1
@@ -34,7 +34,7 @@ if "%choice%"=="1" (
     set EXTRA_FLAGS=--refresh
     echo [INFO] Memaksa refresh cache...
 ) else if "%choice%"=="3" (
-    set /p ver="Masukkan versi (Tags, misal v1.7.0): "
+    set /p ver="Masukkan versi (Tags, misal v1.8.0): "
     set REMOTE_URL=https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/tags/!ver!.zip
     set EXTRA_FLAGS=--refresh
 ) else (
