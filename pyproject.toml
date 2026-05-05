@@ -1,6 +1,6 @@
 [project]
 name = "fea-contour-plotter"
-version = "1.8.0"
+version = "1.9.0"
 description = "FEA 2D Contour Plot Generator — Midas Civil Post-Processing Tool"
 readme = "README.md"
 requires-python = ">=3.10"
