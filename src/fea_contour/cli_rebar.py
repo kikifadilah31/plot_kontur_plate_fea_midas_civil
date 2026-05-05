@@ -176,7 +176,7 @@ def _build_shear_tasks(
     s_long, s_trans,
     direction, case_label,
     load_name, output_folder, method, show_mesh, theme,
-    show_annotation=True,
+    show_annotation=True, shear_select_diameters=None,
 ):
     """
     Build plotting task tuples for one shear case.
@@ -211,9 +211,17 @@ def _build_shear_tasks(
     ))
 
     # --- Task 2: Diameter plot ---
-    D_shear = calc_shear_diameter(Av_s, s_long, s_trans)
+    D_shear = calc_shear_diameter(Av_s, s_long, s_trans,
+                                  available_diameters=shear_select_diameters)
     s_long_label = int(s_long)
     s_trans_label = int(s_trans)
+
+    # Build config_labels for custom shear diameters (for colorbar)
+    shear_labels = None
+    if shear_select_diameters is not None:
+        sorted_d = sorted(shear_select_diameters)
+        shear_labels = [f'D{int(d)}' for d in sorted_d]
+
     tasks.append((
         x, y, D_shear, triangles, polygons, centroids,
         f'Diameter Sengkang s={s_long_label}\u00d7{s_trans_label}mm — {dir_label}',
@@ -221,7 +229,7 @@ def _build_shear_tasks(
         f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | dv = {dv:.0f} mm)',
         load_name, output_folder, method, show_mesh, theme,
         f'shear_diameter_s{s_long_label}x{s_trans_label}_{case_label}',
-        None,  # config_labels
+        shear_labels,  # config_labels for custom shear colorbar
         show_annotation,
     ))
 
@@ -271,6 +279,9 @@ def main():
                         help='Stirrup longitudinal spacing in mm (default: 150)')
     parser.add_argument('--shear-spacing-trans', type=float, default=150,
                         help='Stirrup transversal spacing in mm (default: 150)')
+    parser.add_argument('--shear-select', type=int, nargs='+', default=None,
+                        help='Select available stirrup diameters in mm. '
+                             'Examples: --shear-select 10 13 16 19')
     parser.add_argument('--no-annotation', action='store_true',
                         help='Hide MAX marker and SECTION INADEQUATE badge on plots')
     args = parser.parse_args()
@@ -278,6 +289,11 @@ def main():
     show_mesh = not args.no_mesh
     show_annotation = not args.no_annotation
     h_mm = args.thickness * 1000  # m → mm
+
+    # Validate --shear-select diameters if provided
+    shear_select_diameters = None
+    if args.shear_select:
+        shear_select_diameters = sorted(args.shear_select)
 
     # Validate --rebar-select codes if provided
     rebar_select_codes = None
@@ -331,7 +347,10 @@ def main():
     print(f"f'c = {args.fc} MPa | fy = {args.fy} MPa | Cover = {args.cover} mm")
     print(f"{mode_desc}")
     if args.shear:
-        print(f"Shear Analysis: ON | s_long={args.shear_spacing_long:.0f}mm | s_trans={args.shear_spacing_trans:.0f}mm")
+        shear_info = f"Shear Analysis: ON | s_long={args.shear_spacing_long:.0f}mm | s_trans={args.shear_spacing_trans:.0f}mm"
+        if shear_select_diameters:
+            shear_info += f" | Diameter: D{shear_select_diameters}"
+        print(shear_info)
 
     # --- Resolve and load input files ---
     k_file, c_file, g_file = resolve_input_files(
@@ -454,6 +473,7 @@ def main():
                     direction, case_label,
                     source_name, folder_path, method, show_mesh, args.theme,
                     show_annotation=show_annotation,
+                    shear_select_diameters=shear_select_diameters,
                 )
                 tasks.extend(case_tasks)
 
@@ -669,7 +689,14 @@ def main():
                     s_l = args.shear_spacing_trans
                     s_t = args.shear_spacing_long
 
-                D_shear_env = calc_shear_diameter(Av_s_env, s_l, s_t)
+                D_shear_env = calc_shear_diameter(Av_s_env, s_l, s_t,
+                                                  available_diameters=shear_select_diameters)
+                # Build config_labels for custom shear diameters
+                shear_env_labels = None
+                if shear_select_diameters is not None:
+                    sorted_d = sorted(shear_select_diameters)
+                    shear_env_labels = [f'D{int(d)}' for d in sorted_d]
+
                 all_tasks.append((
                     x, y, D_shear_env, tris, polys, cents,
                     f'ENVELOPE Diameter Sengkang s={int(s_l)}×{int(s_t)}mm — {dir_label}',
@@ -677,7 +704,7 @@ def main():
                     f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | dv = {dv:.0f} mm)',
                     'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_shear_D_s{int(s_l)}x{int(s_t)}_{case_label}',
-                    None,  # config_labels
+                    shear_env_labels,  # config_labels for custom shear colorbar
                     show_annotation,
                 ))
 

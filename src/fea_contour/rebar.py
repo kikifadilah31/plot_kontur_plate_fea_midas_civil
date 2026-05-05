@@ -416,14 +416,14 @@ def calc_shear_Av_per_s(Vu_kn_per_m, fc, fy, dv):
     return Av_per_s
 
 
-def calc_shear_diameter(Av_per_s, s_long, s_trans):
+def calc_shear_diameter(Av_per_s, s_long, s_trans, available_diameters=None):
     """
     Calculate required stirrup diameter given Av/s and both spacings.
 
     For a 1m-wide slab strip with stirrup grid:
       Ab_required = (Av/s) × s_long × s_trans / 1000
       D_required  = √(4 × Ab_required / π)
-      → Round UP to nearest standard stirrup diameter from SHEAR_DIAMETERS.
+      → Round UP to nearest standard stirrup diameter from available list.
 
     Parameters
     ----------
@@ -433,13 +433,19 @@ def calc_shear_diameter(Av_per_s, s_long, s_trans):
         Longitudinal spacing in mm (along shear direction).
     s_trans : float
         Transversal spacing in mm (across 1m strip width).
+    available_diameters : array-like, optional
+        Custom list of available stirrup diameters in mm.
+        If None, uses default SHEAR_DIAMETERS [10, 13, 16, 19, 22, 25].
 
     Returns
     -------
-    numpy array : selected diameter in mm (from SHEAR_DIAMETERS).
+    numpy array : selected diameter in mm.
         Returns 0.0 where Av/s ≈ 0 (no shear rebar needed).
-        Returns np.nan where required diameter exceeds max available (25mm).
+        Returns np.nan where required diameter exceeds max available.
     """
+    diameters = np.asarray(available_diameters, dtype=float) if available_diameters is not None else SHEAR_DIAMETERS
+    diameters = np.sort(diameters)
+
     Av_per_s = np.asarray(Av_per_s, dtype=float)
     D_selected = np.zeros_like(Av_per_s)
 
@@ -455,10 +461,11 @@ def calc_shear_diameter(Av_per_s, s_long, s_trans):
     # Round UP to nearest available stirrup diameter
     result = np.full_like(D_req, np.nan)
     for i, d_req in enumerate(D_req):
-        candidates = SHEAR_DIAMETERS[SHEAR_DIAMETERS >= d_req]
+        candidates = diameters[diameters >= d_req]
         if len(candidates) > 0:
             result[i] = candidates[0]
-        # else: stays np.nan (exceeds max D25 stirrup)
+        # else: stays np.nan (exceeds max available)
 
     D_selected[active] = result
     return D_selected
+

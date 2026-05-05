@@ -157,7 +157,10 @@ def generate_rebar_plot_worker(task):
 
         elif is_diameter_plot:
             from matplotlib.colors import BoundaryNorm, ListedColormap
-            if is_shear:
+            if config_labels and is_shear:
+                # Custom shear diameters from --shear-select
+                AVAIL_D = np.array([int(lbl.replace('D','')) for lbl in config_labels], dtype=float)
+            elif is_shear:
                 from .rebar import SHEAR_DIAMETERS as AVAIL_D
             else:
                 from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
@@ -313,7 +316,9 @@ def generate_rebar_plot_worker(task):
             cbar.set_ticklabels(tick_labels)
         elif is_diameter_plot:
             # Discrete ticks at each available diameter
-            if is_shear:
+            if config_labels and is_shear:
+                AVAIL_D = np.array([int(lbl.replace('D','')) for lbl in config_labels], dtype=float)
+            elif is_shear:
                 from .rebar import SHEAR_DIAMETERS as AVAIL_D
             else:
                 from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
