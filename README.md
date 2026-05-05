@@ -168,6 +168,8 @@ fea-rebar [OPTIONS]
 | `--shear` | Mengaktifkan perhitungan **tulangan geser** (Av/s dan diameter dari Vxx/Vyy) | `False` |
 | `--shear-spacing-long` | Spasi sengkang arah memanjang (longitudinal) dalam mm | `150` |
 | `--shear-spacing-trans` | Spasi sengkang melintang (transversal) dalam mm | `150` |
+| `--shear-select` | Pilih daftar diameter sengkang geser kustom (misal: `10 13 16 19 22 25 32`) | *(default: D10-D25)* |
+| `--no-annotation` | Sembunyikan anotasi `MAX` marker dan *badge SECTION INADEQUATE* pada plot | `False` |
 | `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
 | `--comb` | Path ke file CSV kombinasi beban | *(none)* |
 | `--comb-select` | Wildcard filter untuk memproses kombinasi tertentu (cth: `K_1*`) | `*` |
@@ -192,8 +194,11 @@ fea-rebar --fc 30 --fy 420 --diameter 2D25 --comb input/kombinasi_beban.csv --no
 # Mode Default (Backward Compatible): cari diameter tunggal terdekat (D13 - D32 max)
 fea-rebar --fc 30 --fy 420 --spacing 150 --comb input/kombinasi_beban.csv --no-mesh
 
-# Analisis Geser (Shear) dengan spasi sengkang 150x150 mm
-fea-rebar --shear --shear-spacing-long 150 --shear-spacing-trans 150 --comb input/kombinasi_beban.csv --no-mesh
+# Analisis Geser (Shear) dengan pembatasan diameter sengkang spesifik (misal: hanya D10, D13, D16)
+fea-rebar --shear --shear-spacing-long 150 --shear-spacing-trans 150 --shear-select 10 13 16 --comb input/kombinasi_beban.csv --no-mesh
+
+# Menonaktifkan anotasi MAX dan badge Inadequate untuk pelaporan presentasi estetika
+fea-rebar --spacing 150 --no-annotation
 ```
 
 
