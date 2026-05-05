@@ -109,7 +109,7 @@ def generate_rebar_plot_worker(task):
         # Detect plot type from filename_tag
         fn_lower = filename_tag.lower()
         is_diameter_plot = 'diameter' in fn_lower or '_shear_d_' in fn_lower
-        is_config_plot = config_labels is not None
+        is_config_plot = (config_labels is not None) and not is_diameter_plot
         is_shear = 'shear' in fn_lower
 
         # Extended categorical palette (enough for up to 25 configs)
@@ -165,8 +165,10 @@ def generate_rebar_plot_worker(task):
             else:
                 from .rebar import AVAILABLE_DIAMETERS as AVAIL_D
                 
-            # Boundaries: [-0.1, 0.1, limit1, limit2, ..., limitN, overflow]
-            boundaries = [-0.1, 0.1] + list(AVAIL_D) + [AVAIL_D[-1] + 3]
+            # Boundaries: [-0.1, 0.1, d0, d1, ..., dN, dN+3, dN+6]
+            # This ensures the largest diameter 'dN' gets its own bin [dN, dN+3),
+            # and the overflow bin [dN+3, dN+6] is reserved for INADEQUATE_COLOR.
+            boundaries = [-0.1, 0.1] + list(AVAIL_D) + [AVAIL_D[-1] + 3, AVAIL_D[-1] + 6]
             n_bins = len(boundaries) - 1
             
             cmap_colors = CATEGORICAL_COLORS[:n_bins]
