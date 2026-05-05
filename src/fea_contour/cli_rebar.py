@@ -63,6 +63,7 @@ def _build_rebar_tasks(
     direction, layer, case_label,
     load_name, output_folder, method, show_mesh, theme,
     rebar_select_codes=None, config_code=None, config_area=None,
+    show_annotation=True,
 ):
     """
     Build plotting task tuples for one rebar case.
@@ -107,6 +108,7 @@ def _build_rebar_tasks(
         load_name, output_folder, method, show_mesh, theme,
         f'As_{case_label}',
         None,  # config_labels (not applicable for As plot)
+        show_annotation,
     ))
 
     # --- Task 2: Spacing or Diameter/Config plot ---
@@ -132,6 +134,7 @@ def _build_rebar_tasks(
             load_name, output_folder, method, show_mesh, theme,
             f'spacing_{label_code}_{case_label}',
             None,  # config_labels (not applicable for spacing plot)
+            show_annotation,
         ))
     else:
         # Mode B: given spacing, output diameter or config
@@ -148,6 +151,7 @@ def _build_rebar_tasks(
                 load_name, output_folder, method, show_mesh, theme,
                 f'config_s{int(spacing_input)}_{case_label}',
                 sorted_codes,  # config_labels for colorbar
+                show_annotation,
             ))
         else:
             # Standard diameter matching (backward compatible)
@@ -160,6 +164,7 @@ def _build_rebar_tasks(
                 load_name, output_folder, method, show_mesh, theme,
                 f'diameter_s{int(spacing_input)}_{case_label}',
                 None,  # config_labels (use default AVAILABLE_DIAMETERS)
+                show_annotation,
             ))
 
     return tasks
@@ -171,6 +176,7 @@ def _build_shear_tasks(
     s_long, s_trans,
     direction, case_label,
     load_name, output_folder, method, show_mesh, theme,
+    show_annotation=True,
 ):
     """
     Build plotting task tuples for one shear case.
@@ -201,6 +207,7 @@ def _build_shear_tasks(
         load_name, output_folder, method, show_mesh, theme,
         f'Avs_{case_label}',
         None,  # config_labels
+        show_annotation,
     ))
 
     # --- Task 2: Diameter plot ---
@@ -215,6 +222,7 @@ def _build_shear_tasks(
         load_name, output_folder, method, show_mesh, theme,
         f'shear_diameter_s{s_long_label}x{s_trans_label}_{case_label}',
         None,  # config_labels
+        show_annotation,
     ))
 
     return tasks
@@ -263,9 +271,12 @@ def main():
                         help='Stirrup longitudinal spacing in mm (default: 150)')
     parser.add_argument('--shear-spacing-trans', type=float, default=150,
                         help='Stirrup transversal spacing in mm (default: 150)')
+    parser.add_argument('--no-annotation', action='store_true',
+                        help='Hide MAX marker and SECTION INADEQUATE badge on plots')
     args = parser.parse_args()
 
     show_mesh = not args.no_mesh
+    show_annotation = not args.no_annotation
     h_mm = args.thickness * 1000  # m → mm
 
     # Validate --rebar-select codes if provided
@@ -395,6 +406,7 @@ def main():
                     source_name, folder_path, method, show_mesh, args.theme,
                     rebar_select_codes=rebar_select_codes,
                     config_code=config_code, config_area=config_area,
+                    show_annotation=show_annotation,
                 )
                 tasks.extend(case_tasks)
 
@@ -441,6 +453,7 @@ def main():
                     s_l, s_t,
                     direction, case_label,
                     source_name, folder_path, method, show_mesh, args.theme,
+                    show_annotation=show_annotation,
                 )
                 tasks.extend(case_tasks)
 
@@ -569,6 +582,7 @@ def main():
                     'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_As_{case_label}',
                     None,  # config_labels
+                    show_annotation,
                 ))
 
                 # Spacing/Diameter/Config envelope plot
@@ -591,6 +605,7 @@ def main():
                         'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                         f'ENVELOPE_spacing_{label_code}_{case_label}',
                         None,  # config_labels
+                        show_annotation,
                     ))
                 else:
                     if rebar_select_codes:
@@ -605,6 +620,7 @@ def main():
                             'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                             f'ENVELOPE_config_s{int(spacing_input)}_{case_label}',
                             sorted_codes,  # config_labels
+                            show_annotation,
                         ))
                     else:
                         D_env = calc_diameter_from_spacing(As_env, spacing_input)
@@ -616,6 +632,7 @@ def main():
                             'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                             f'ENVELOPE_diameter_s{int(spacing_input)}_{case_label}',
                             None,  # config_labels
+                            show_annotation,
                         ))
 
         # --- Shear Envelope tasks ---
@@ -641,6 +658,7 @@ def main():
                     'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_Avs_{case_label}',
                     None,  # config_labels
+                    show_annotation,
                 ))
 
                 # Diameter envelope plot
@@ -660,6 +678,7 @@ def main():
                     'ENVELOPE', shear_env_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_shear_D_s{int(s_l)}x{int(s_t)}_{case_label}',
                     None,  # config_labels
+                    show_annotation,
                 ))
 
         # --- Parallel Plotting ---

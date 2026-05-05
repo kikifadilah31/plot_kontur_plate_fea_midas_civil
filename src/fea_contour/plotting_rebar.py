@@ -40,11 +40,11 @@ def generate_rebar_plot_worker(task):
     """
     Rebar-specific plotting worker with figure recycling.
 
-    Task tuple (16 elements):
+    Task tuple (17 elements):
         (x, y, z, triangles, polygons, centroids,
          plot_label, unit_label, subtitle, load_name,
          output_folder, contour_method, show_mesh, theme, filename_tag,
-         config_labels)
+         config_labels, show_annotation)
     """
     try:
         if not hasattr(thread_local_rb, "fig"):
@@ -59,7 +59,7 @@ def generate_rebar_plot_worker(task):
         (x, y, z, triangles, polygons, centroids,
          plot_label, unit_label, subtitle, load_name,
          output_folder, contour_method, show_mesh, theme, filename_tag,
-         config_labels) = task
+         config_labels, show_annotation) = task
 
         is_dark = theme == 'dark'
         bg_col = '#1E1E1E' if is_dark else '#FFFFFF'
@@ -236,52 +236,53 @@ def generate_rebar_plot_worker(task):
                 rebar_ax.set_ylim(min(all_y) - 1.0, max(all_y) + 1.0)
 
         # --- Annotations ---
-        y_range_ax = rebar_ax.get_ylim()[1] - rebar_ax.get_ylim()[0]
-        offset = y_range_ax * 0.06
+        if show_annotation:
+            y_range_ax = rebar_ax.get_ylim()[1] - rebar_ax.get_ylim()[0]
+            offset = y_range_ax * 0.06
 
-        bbox_style = dict(boxstyle='round,pad=0.5', fc=bg_col, ec='#DC143C', lw=1.5, alpha=0.9)
-        arrow_style = dict(arrowstyle='-|>,head_width=0.4,head_length=0.6',
-                           color='#DC143C', lw=1.5, connectionstyle='arc3,rad=0.3')
+            bbox_style = dict(boxstyle='round,pad=0.5', fc=bg_col, ec='#DC143C', lw=1.5, alpha=0.9)
+            arrow_style = dict(arrowstyle='-|>,head_width=0.4,head_length=0.6',
+                               color='#DC143C', lw=1.5, connectionstyle='arc3,rad=0.3')
 
-        # Smart HA positioning
-        x_range_data = np.max(x) - np.min(x)
-        x_min_data = np.min(x)
-        ha = 'right' if max_xy[0] > x_min_data + 0.8 * x_range_data else \
-             'left' if max_xy[0] < x_min_data + 0.2 * x_range_data else 'center'
+            # Smart HA positioning
+            x_range_data = np.max(x) - np.min(x)
+            x_min_data = np.min(x)
+            ha = 'right' if max_xy[0] > x_min_data + 0.8 * x_range_data else \
+                 'left' if max_xy[0] < x_min_data + 0.2 * x_range_data else 'center'
 
-        if max_val > 0:
-            rebar_ax.plot(
-                max_xy[0], max_xy[1], 'D', ms=12, color='#DC143C',
-                markeredgecolor='white', markeredgewidth=1.5, zorder=10,
-            )
-            if is_config_plot:
-                # Config index → label
-                cfg_int = int(max_val)
-                if 1 <= cfg_int <= len(config_labels):
-                    max_text = f'MAX: {config_labels[cfg_int - 1]}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
+            if max_val > 0:
+                rebar_ax.plot(
+                    max_xy[0], max_xy[1], 'D', ms=12, color='#DC143C',
+                    markeredgecolor='white', markeredgewidth=1.5, zorder=10,
+                )
+                if is_config_plot:
+                    # Config index → label
+                    cfg_int = int(max_val)
+                    if 1 <= cfg_int <= len(config_labels):
+                        max_text = f'MAX: {config_labels[cfg_int - 1]}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
+                    else:
+                        max_text = f'MAX: idx={cfg_int}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
+                elif is_diameter_plot:
+                    max_text = f'MAX: D{int(max_val)}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
                 else:
-                    max_text = f'MAX: idx={cfg_int}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
-            elif is_diameter_plot:
-                max_text = f'MAX: D{int(max_val)}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
-            else:
-                max_text = f'MAX: {max_val:.1f} {unit_label}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
-            rebar_ax.annotate(
-                max_text, xy=max_xy, xytext=(max_xy[0], max_xy[1] + offset),
-                fontsize=10, fontweight='bold', color=text_col, ha=ha, va='bottom',
-                bbox=bbox_style, arrowprops=arrow_style, zorder=11,
-            )
+                    max_text = f'MAX: {max_val:.1f} {unit_label}\n@ ({max_xy[0]:.2f}, {max_xy[1]:.2f})'
+                rebar_ax.annotate(
+                    max_text, xy=max_xy, xytext=(max_xy[0], max_xy[1] + offset),
+                    fontsize=10, fontweight='bold', color=text_col, ha=ha, va='bottom',
+                    bbox=bbox_style, arrowprops=arrow_style, zorder=11,
+                )
 
-        # Section Inadequate warning badge
-        if has_nan:
-            n_inad = np.sum(np.isnan(z))
-            rebar_ax.text(
-                0.98, 0.02,
-                f'SECTION INADEQUATE: {n_inad} points',
-                transform=rebar_ax.transAxes, fontsize=10,
-                fontweight='bold', color='white', ha='right', va='bottom',
-                bbox=dict(boxstyle='round,pad=0.5', fc=INADEQUATE_COLOR, ec='white',
-                          lw=1.5, alpha=0.9),
-            )
+            # Section Inadequate warning badge
+            if has_nan:
+                n_inad = np.sum(np.isnan(z))
+                rebar_ax.text(
+                    0.98, 0.02,
+                    f'SECTION INADEQUATE: {n_inad} points',
+                    transform=rebar_ax.transAxes, fontsize=10,
+                    fontweight='bold', color='white', ha='right', va='bottom',
+                    bbox=dict(boxstyle='round,pad=0.5', fc=INADEQUATE_COLOR, ec='white',
+                              lw=1.5, alpha=0.9),
+                )
 
         # --- Axes styling ---
         rebar_ax.set_aspect('equal')
