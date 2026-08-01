@@ -1,7 +1,34 @@
 # FEA 2D Contour Plot Generator
-**Version 1.9.0 | Professional FEA Visualization & Reporting**
+**Version 2.0.0 | Professional FEA Visualization & Reporting**
 
 High-performance Python tool for generating FEA contour plots and comprehensive technical reports from Midas Civil (or similar) plate/shell results.
+
+---
+
+## ⚠️ Catatan Upgrade ke 2.0.0
+
+Versi ini menambahkan pemeriksaan code SNI 2847:2019 yang sebelumnya tidak ada. **Hasil hitungan tulangan akan berbeda dari v1.x** pada model yang sama:
+
+| Perubahan | Dampak |
+|-----------|--------|
+| Tulangan minimum susut & suhu (Pasal 24.4.3.2) | Zona bermomen kecil kini terisi tulangan minimum, bukan mendekati nol |
+| Verifikasi daktilitas $\rho_{max}$ (Tabel 21.2.2) | Penampang yang tidak *tension-controlled* ditandai **SECTION INADEQUATE** |
+| Spasi di bawah batas minimum (Pasal 25.2.1) | Dulu di-*clamp* agar terlihat wajar, sekarang ditandai gagal |
+| Batas hancur badan geser (Pasal 22.5.1.2) | Zona geser ekstrem ditandai gagal, bukan diberi sengkang lebih besar |
+| Tinggi efektif Mode B iteratif | $A_s$ naik di zona bertulangan besar (dulu *underestimate* karena asumsi D16 tetap) |
+| $V_c$ disatukan ke bentuk SNI $0{,}17\lambda\sqrt{f'_c}b_w d$ | Selisih <2,5% dari rumus AASHTO yang dipakai v1.x |
+
+> **Membandingkan dengan hasil lama:** jalankan `fea-rebar --no-as-min` untuk menonaktifkan tulangan minimum, sehingga selisihnya bisa Anda telusuri satu per satu sebelum dipakai untuk desain.
+
+**Perbaikan bug yang menyertai:**
+
+- `fea-rebar --method all` tidak lagi crash (envelope antar-metode punya panjang array berbeda)
+- **`--method element-center` kini benar-benar menghasilkan plot** — sebelumnya 100% gagal di `fea-plot` maupun `fea-rebar`
+- Zona *inadequate* pada `element-center` kini berwarna abu-abu; dulu putih, tidak bisa dibedakan dari "tidak butuh tulangan"
+- `--rebar-select` dengan daftar panjang tidak lagi menggagalkan seluruh plot konfigurasi
+- Resolusi nama load case kini deterministik dan memberi peringatan bila ambigu
+- Elemen dengan node hilang tidak lagi mencemari hasil (dulu membaca memori tak terinisialisasi)
+- **Exit code kini mencerminkan kenyataan**: dulu program mencetak `[SUCCESS]` dan keluar dengan kode 0 walaupun seluruh plot gagal
 
 ---
 
@@ -170,6 +197,7 @@ fea-rebar [OPTIONS]
 | `--shear-spacing-trans` | Spasi sengkang melintang (transversal) dalam mm | `150` |
 | `--shear-select` | Pilih daftar diameter sengkang geser kustom (misal: `10 13 16 19 22 25 32`) | *(default: D10-D25)* |
 | `--no-annotation` | Sembunyikan anotasi `MAX` marker dan *badge SECTION INADEQUATE* pada plot | `False` |
+| `--no-as-min` | Nonaktifkan tulangan minimum SNI 24.4.3.2 (hanya untuk membandingkan dengan hasil v1.x) | `False` |
 | `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
 | `--comb` | Path ke file CSV kombinasi beban | *(none)* |
 | `--comb-select` | Wildcard filter untuk memproses kombinasi tertentu (cth: `K_1*`) | `*` |
@@ -246,18 +274,23 @@ $$\sigma = \frac{N}{A} - \frac{M \cdot y}{I}$$
 | y_bottom | `−t/2` |
 
 ### Perhitungan Tulangan Geser (Sengkang)
-Berbasis pias elemen pelat $b_w = 1000$ m, gaya-gaya dalam dihitung dengan rasio luasan per unit area.
+Berbasis pias pelat $b_w = 1000$ mm, gaya dalam dihitung sebagai rasio per unit lebar.
 
-**1. Kapasitas Geser Beton ($V_c$)**
-$$ V_c = \frac{1}{6} \cdot \sqrt{f'_c} \cdot b_w \cdot d_v \cdot \beta $$
-*(Untuk beton normal-weight biasa, engine mendefinisikan $\beta = 2.0$)*
+**1. Kapasitas Geser Beton ($V_c$)** — SNI 2847:2019 Pasal 22.5.5.1
+$$ V_c = 0.17 \cdot \lambda \cdot \sqrt{f'_c} \cdot b_w \cdot d $$
+*(Beton normal-weight: $\lambda = 1.0$)*
 
 **2. Rasio Luas Kebutuhan ($A_v/s$)**
-$$ V_s = \frac{V_u}{\phi_v} - V_c $$
-$$ \frac{A_v}{s} = \frac{V_s}{f_{yt} \cdot d_v} $$
-*(Apabila $V_u \leq 0.5 \phi_v V_c$, rasio luas diset menjadi 0 atau dibatasi pada batas aman tulangan minimum).*
+$$ V_s = \frac{V_u}{\phi_v} - V_c \qquad (\phi_v = 0.75) $$
+$$ \frac{A_v}{s} = \frac{V_s}{f_{yt} \cdot d} $$
+Sengkang hanya diperlukan bila $V_u > 0.5 \phi_v V_c$. Bila diperlukan, berlaku batas minimum Pasal 9.6.3.4:
+$$ \left(\frac{A_v}{s}\right)_{min} = \max\left(0.062\sqrt{f'_c}\frac{b_w}{f_{yt}},\; 0.35\frac{b_w}{f_{yt}}\right) $$
 
-**3. Konversi Diameter Nominal**
+**3. Batas Hancur Badan** — SNI Pasal 22.5.1.2
+$$ V_s \leq 0.66 \sqrt{f'_c} \cdot b_w \cdot d $$
+> Bila terlampaui, zona ditandai **SECTION INADEQUATE**. Menambah diameter sengkang **tidak** menyelesaikan kondisi ini — tebal pelat yang harus dinaikkan.
+
+**4. Konversi Diameter Nominal**
 $$ D_s = \sqrt{\frac{4 \cdot (A_v/s) \cdot s_{\text{longitudinal}} \cdot s_{\text{transversal}}}{\pi \cdot 1000}} $$
 
 ### Sign Convention (Midas Civil)
@@ -276,15 +309,34 @@ $$ D_s = \sqrt{\frac{4 \cdot (A_v/s) \cdot s_{\text{longitudinal}} \cdot s_{\tex
    - **Arah X (Bottom/Top):** $d_x = h - t_{cc} - 0.5D$
    - **Arah Y (Bottom/Top):** $d_y = h - t_{cc} - D - 0.5D$
 
+   > **Mode B iteratif (v2.0.0):** karena $d$ bergantung pada diameter sedangkan diameter justru yang dicari, program melakukan iterasi: hitung $d$ → hitung $A_s$ → pilih tulangan → hitung ulang $d$, sampai stabil (maks. 5 iterasi). Revisi diameter hanya ke arah membesar, sehingga iterasinya dijamin berhenti dan konservatif. Label `d_eff` pada plot menampilkan rentang bila nilainya bervariasi. Mode A tidak beriterasi karena diameternya sudah diketahui.
+
 2. **Luas Tulangan Perlu ($A_{s,perlu}$)**
    $$A_{s,perlu} = \frac{0.85 \cdot f'_c \cdot b \cdot d}{f_y} \left( 1 - \sqrt{1 - \frac{2 \cdot M_u}{\phi \cdot 0.85 \cdot f'_c \cdot b \cdot d^2}} \right)$$
    *(di mana $\phi = 0.9$ untuk lentur, $b = 1000$ mm)*
-   > **Peringatan Sistem (v1.5.0):** Jika nilai di dalam akar negatif atau diameter perlu > D32, program akan memberikan label **SECTION INADEQUATE** (Warna Magenta/Ungu) pada plot untuk mempermudah identifikasi zona gagal.
 
-3. **Kalkulasi Spasi dari Kuota Diameter ($D$)**
+3. **Tulangan Minimum** — SNI Pasal 24.4.3.2 (susut & suhu, mengatur pelat)
+   $$A_{s,min} = \rho_{min} \cdot b \cdot h, \qquad \rho_{min} = \begin{cases} 0.0020 & f_y < 420 \\ \max\left(0.0018 \cdot \frac{420}{f_y},\, 0.0014\right) & f_y \geq 420 \end{cases}$$
+   *Perhatikan: dihitung terhadap penampang **bruto** ($b \times h$), bukan terhadap $d$.*
+
+4. **Batas Daktilitas** — SNI Tabel 21.2.2
+   $$\rho_{max} = 0.85 \cdot \beta_1 \cdot \frac{f'_c}{f_y} \cdot \frac{\varepsilon_{cu}}{\varepsilon_{cu} + \varepsilon_{ty} + 0.003}, \qquad \varepsilon_{ty} = \frac{f_y}{E_s}$$
+   > $\phi = 0.9$ hanya sah untuk penampang *tension-controlled*. Alih-alih menurunkan $\phi$ diam-diam, penampang yang melampaui $\rho_{max}$ ditandai **SECTION INADEQUATE** — jawaban yang benar untuk pelat adalah menebalkan penampang, bukan mengurangi daktilitas.
+
+**Kondisi yang ditandai SECTION INADEQUATE (warna abu-abu gelap):**
+> - Nilai di dalam akar negatif — penampang tidak mampu memikul $M_u$
+> - $A_s > \rho_{max} \cdot b \cdot d$ — penampang tidak daktail
+> - Spasi hasil hitungan < $s_{min}$ — tulangan tidak mungkin dipasang serapat itu
+> - Diameter/konfigurasi perlu melampaui daftar yang tersedia
+> - $V_s$ melampaui batas hancur badan
+>
+> Jumlah titik gagal per kasus juga dicetak di konsol pada akhir proses.
+
+5. **Kalkulasi Spasi dari Kuota Diameter ($D$)**
    $$s_{calc} = \frac{(0.25 \cdot \pi \cdot D^2) \cdot 1000}{A_{s,perlu}}$$
+   Dibatasi $s_{max} = \min(2h,\ 450)$ mm (di-*clamp* turun, konservatif) dan $s_{min} = D + \max(25, D)$ mm per Pasal 25.2.1 — jarak **bersih** ditambah satu diameter. Di bawah $s_{min}$ ditandai gagal, tidak di-*clamp* naik.
 
-4. **Kalkulasi Diameter dari Spasi Target ($s$)**
+6. **Kalkulasi Diameter dari Spasi Target ($s$)**
    $$D_{req} = \sqrt{\frac{4 \cdot (A_{s,perlu} \cdot s / 1000)}{\pi}}$$
    *Program kemudian memilih diameter aktual terbesar berikutnya dari standar pasaran: [13, 16, 19, 22, 25, 32].*
 
@@ -296,16 +348,22 @@ $$ D_s = \sqrt{\frac{4 \cdot (A_v/s) \cdot s_{\text{longitudinal}} \cdot s_{\tex
 
 ```
 src/fea_contour/
-├── config.py          # Semua konstanta terpusat
-├── math_utils.py      # Perhitungan tegangan + helpers
-├── combination.py     # Parsing & validasi kombinasi beban
-├── io_utils.py        # CSV loading & auto-detect
-├── mesh.py            # MeshTopology class
-├── values.py          # ValueMapper class (Z-Array caching)
-├── plotting.py        # Plot worker + figure recycling
-├── reporting.py       # Report & master summary generation
-├── cli_plot.py        # CLI: fea-plot
-└── cli_report.py      # CLI: fea-report
+├── config.py           # Semua konstanta terpusat (termasuk konstanta material SNI)
+├── math_utils.py       # Perhitungan tegangan + helpers
+├── combination.py      # Parsing kombinasi + resolusi nama load case bertingkat
+├── io_utils.py         # CSV loading & auto-detect
+├── mesh.py             # MeshTopology class (+ valid_mask)
+├── values.py           # ValueMapper class (Z-Array caching)
+├── rebar.py            # Engine tulangan: lentur, geser, cek code SNI
+├── plotting.py         # Plot worker kontur gaya + figure recycling
+├── plotting_rebar.py   # Plot worker tulangan (colormap kategorikal)
+├── reporting.py        # Report & master summary (Markdown)
+├── reporting_typst.py  # Report & master summary (Typst)
+├── cli_plot.py         # CLI: fea-plot
+├── cli_report.py       # CLI: fea-report
+└── cli_rebar.py        # CLI: fea-rebar
+
+tests/                  # pytest — regresi bug + unit test engine perhitungan
 ```
 
 ### Key Optimizations
@@ -340,6 +398,10 @@ Aggregasi global dari semua load case dan kombinasi:
 | Plot lambat di `[1/3]` | Normal untuk `element-nodal` — Z-Array caching berjalan |
 | Kombinasi tidak ditemukan | Periksa nama load case di CSV cocok dengan output FEA |
 | `ModuleNotFoundError` | Jalankan via `uv run` atau install package dulu |
+| `[WARN] ... elemen dilewati` | Ada elemen di `connectivity_data.csv` yang node-nya tidak ada di `kordinat_node.csv`. Elemen tersebut dibuang dari mesh |
+| `[WARN] Nama load case tidak cocok persis` | Program menyesuaikan nama secara otomatis. Periksa hasil penyesuaian yang dicetak — bila ditandai `AMBIGUOUS`, samakan penamaan di CSV kombinasi |
+| Banyak zona **SECTION INADEQUATE** setelah upgrade ke 2.0.0 | Ini hasil pemeriksaan code yang baru, bukan bug. Bandingkan dengan `--no-as-min`, lalu tinjau tebal pelat / mutu beton / batasan diameter (`--rebar-select`) |
+| `[FAILED] N plot gagal dibuat` | Program kini keluar dengan kode 1 bila ada plot gagal. Baca pesan error yang tercetak di atasnya |
 
 ---
 
@@ -347,8 +409,24 @@ Aggregasi global dari semua load case dan kombinasi:
 
 1. **Zienkiewicz, O.C. & Taylor, R.L.** (2000). *The Finite Element Method*. Butterworth-Heinemann.
 2. **MIDAS Civil User Manual** (2023). *Post-Processing: Plate/Shell Element Results*.
+3. **SNI 2847:2019** — *Persyaratan Beton Struktural untuk Bangunan Gedung*. BSN.
+4. **ACI 318-19** — *Building Code Requirements for Structural Concrete*. ACI.
+
+---
+
+## 🧪 Pengembangan
+
+```bash
+# Test cepat (unit test engine perhitungan)
+uv run pytest -m "not slow"
+```
+
+```bash
+# Termasuk test end-to-end yang merender plot sungguhan
+uv run pytest
+```
 
 ---
 
 **License:** MIT  
-**Version:** 1.5.0
+**Version:** 2.0.0

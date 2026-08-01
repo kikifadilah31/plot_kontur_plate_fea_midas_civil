@@ -57,7 +57,15 @@ class ValueMapper:
         if not numeric_cols:
             return
 
-        grouped = self.df_nodes.groupby('Node')[numeric_cols].mean()
+        # Average only over elements that made it into the mesh. An element
+        # dropped for a missing node must not skew the shared nodes it happens
+        # to touch.
+        df_nodes = self.df_nodes
+        if self.mesh.n_invalid:
+            kept = set(self.mesh.elem_ids[self.mesh.valid_mask].tolist())
+            df_nodes = df_nodes[df_nodes['Elem'].isin(kept)]
+
+        grouped = df_nodes.groupby('Node')[numeric_cols].mean()
         avg_lookup = {c: grouped[c].to_dict() for c in numeric_cols}
 
         for col, col_dict in avg_lookup.items():
@@ -86,11 +94,15 @@ class ValueMapper:
         # HEAVY LIFTING: Pre-compute all Z-arrays (runs ONCE per LC)
         elem_ids_mesh = self.mesh.elem_ids
         node_idx_per_elem = self.mesh.node_idx_per_elem
+        valid_mask = self.mesh.valid_mask
         z = np.zeros(len(self.mesh.x), dtype=np.float64)
 
         for col, col_dict in elem_node_lookup.items():
             z[:] = 0.0
             for i in range(self.mesh.n_elem):
+                # Skipped elements have no slot in node_idx_per_elem
+                if not valid_mask[i]:
+                    continue
                 nodes = self.mesh._get_nodes_for_elem(i)
                 start_indices = node_idx_per_elem[i, :len(nodes)]
                 eid = elem_ids_mesh[i]

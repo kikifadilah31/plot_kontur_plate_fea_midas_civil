@@ -69,10 +69,21 @@ def generate_plot_worker(task):
         worker_ax = worker_fig.add_subplot(111)
         worker_ax.set_facecolor(bg_col)
 
+        # element-center supplies polygons instead of node arrays (x/y are
+        # None), so derive the extents from the polygon corners.
+        if contour_method == 'element-center':
+            if polygons:
+                coords_x = np.array([p[0] for poly in polygons for p in poly])
+                coords_y = np.array([p[1] for poly in polygons for p in poly])
+            else:
+                coords_x = coords_y = np.empty(0, dtype=np.float64)
+        else:
+            coords_x, coords_y = np.asarray(x), np.asarray(y)
+
         # Dynamic figure resizing based on data geometry to eliminate vertical dead space
-        if len(x) > 0 and len(y) > 0:
-            x_range = np.max(x) - np.min(x)
-            y_range = np.max(y) - np.min(y)
+        if len(coords_x) > 0 and len(coords_y) > 0:
+            x_range = np.max(coords_x) - np.min(coords_x)
+            y_range = np.max(coords_y) - np.min(coords_y)
             if x_range > 0 and y_range > 0:
                 data_ratio = x_range / y_range
                 fig_w = 14.0
@@ -143,19 +154,17 @@ def generate_plot_worker(task):
             else:
                 max_xy = min_xy = (0, 0)
 
-            if polygons:
-                all_x = [p[0] for poly in polygons for p in poly]
-                all_y = [p[1] for poly in polygons for p in poly]
-                worker_ax.set_xlim(min(all_x) - 1.0, max(all_x) + 1.0)
-                worker_ax.set_ylim(min(all_y) - 1.0, max(all_y) + 1.0)
+            if len(coords_x) > 0:
+                worker_ax.set_xlim(coords_x.min() - 1.0, coords_x.max() + 1.0)
+                worker_ax.set_ylim(coords_y.min() - 1.0, coords_y.max() + 1.0)
 
         # --- Annotations ---
         y_range_ax = worker_ax.get_ylim()[1] - worker_ax.get_ylim()[0]
         offset = y_range_ax * 0.05
-        
+
         # Smart HA positioning to prevent overlapping at borders
-        x_range_data = np.max(x) - np.min(x)
-        x_min_data = np.min(x)
+        x_range_data = np.max(coords_x) - np.min(coords_x)
+        x_min_data = np.min(coords_x)
         ha_max = 'right' if max_xy[0] > x_min_data + 0.8*x_range_data else 'left' if max_xy[0] < x_min_data + 0.2*x_range_data else 'center'
         ha_min = 'right' if min_xy[0] > x_min_data + 0.8*x_range_data else 'left' if min_xy[0] < x_min_data + 0.2*x_range_data else 'center'
 

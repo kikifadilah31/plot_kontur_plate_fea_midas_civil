@@ -18,7 +18,9 @@ from .config import (
     DEFAULT_THICKNESS, ALL_METHODS, OUTPUT_FOLDER,
 )
 from .math_utils import safe_filename
-from .combination import parse_combination_file, validate_combinations
+from .combination import (
+    parse_combination_file, validate_combinations, format_resolution_warnings,
+)
 from .io_utils import load_csv_inputs, build_coord_dict, resolve_input_files
 from .mesh import MeshTopology
 from .values import ValueMapper
@@ -26,11 +28,13 @@ from .rebar import (
     DEFAULT_FC, DEFAULT_FY, DEFAULT_COVER, PHI_FLEXURE,
     AVAILABLE_DIAMETERS, SHEAR_DIAMETERS,
     REBAR_CONFIG_TABLE,
-    calc_effective_depth, calc_as_required,
+    calc_as_min,
+    calc_effective_depth, calc_as_required, apply_as_min,
     calc_spacing_from_diameter, calc_diameter_from_spacing,
     check_spacing_limits,
     calc_shear_Av_per_s, calc_shear_diameter,
     get_config_area, select_config_from_As,
+    solve_rebar_iterative, format_depth_range,
 )
 from .plotting_rebar import init_rebar_worker, generate_rebar_plot_worker
 
@@ -63,17 +67,17 @@ def _build_rebar_tasks(
     direction, layer, case_label,
     load_name, output_folder, method, show_mesh, theme,
     rebar_select_codes=None, config_code=None, config_area=None,
-    show_annotation=True,
+    show_annotation=True, apply_min=True,
 ):
     """
     Build plotting task tuples for one rebar case.
-    Returns list of task tuples (As plot + spacing/diameter plot).
 
-    When rebar_select_codes is provided, Mode B uses custom config matching
-    instead of standard calc_diameter_from_spacing.
+    Returns (tasks, As, d_eff) so the caller can accumulate the envelope from
+    the SAME As the plots use — recomputing it separately let the two drift.
 
-    When config_code/config_area is provided, Mode A uses config area
-    instead of single bar area for spacing calculation.
+    Mode A (a bar is given, spacing is the answer) keeps a scalar effective
+    depth. Mode B (spacing is given, the bar is the answer) iterates the depth
+    against the bar actually selected.
     """
     tasks = []
 
@@ -85,26 +89,39 @@ def _build_rebar_tasks(
         # Negative moment → top rebar (use absolute value)
         Mu = np.where(moment_array < 0, np.abs(moment_array), 0.0)
 
-    # Effective depth
-    D_for_depth = diameter_input if diameter_input else 16.0  # assume D16 for depth calc in Mode B
-    d_eff = calc_effective_depth(h_mm, cover, D_for_depth, direction, layer)
+    if mode == 'spacing':
+        # Mode A: bar size is known up front, so d is a single scalar
+        d_eff = calc_effective_depth(h_mm, cover, diameter_input, direction, layer)
+        As = calc_as_required(Mu, fc, fy, d_eff, PHI_FLEXURE)
+        if apply_min:
+            As = apply_as_min(As, fy, h_mm)
+        selection = sorted_codes = None
+    else:
+        # Mode B: d and the bar selection are solved together
+        As, d_eff, selection, sorted_codes = solve_rebar_iterative(
+            Mu, fc, fy, h_mm, cover, direction, layer,
+            spacing_input, config_codes=rebar_select_codes,
+            apply_min=apply_min,
+        )
 
-    # Calculate As_required
-    As = calc_as_required(Mu, fc, fy, d_eff, PHI_FLEXURE)
-
-    # Skip if all zeros
-    if np.all((As == 0) | np.isnan(As)):
-        return tasks
+    # Skip only when this face carries no moment at all. Testing As instead
+    # would hide two things: layers held up purely by minimum steel, and
+    # layers that are inadequate everywhere.
+    if not np.any(Mu > 1e-9):
+        return tasks, As, d_eff
 
     layer_label = "Tulangan Bawah" if layer == 'bottom' else "Tulangan Atas"
     dir_label = "Arah X" if direction == 'x' else "Arah Y"
+    depth_label = format_depth_range(d_eff)
+    subtitle = (f'(Method: {method.replace("-", " ").title()} '
+                f'| f\'c = {fc} MPa | d_eff = {depth_label})')
 
     # --- Task 1: As_required plot (always shown) ---
     tasks.append((
         x, y, As, triangles, polygons, centroids,
         f'As Required — {layer_label} ({dir_label})',
         'mm²/m',
-        f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | d_eff = {d_eff:.0f} mm)',
+        subtitle,
         load_name, output_folder, method, show_mesh, theme,
         f'As_{case_label}',
         None,  # config_labels (not applicable for As plot)
@@ -116,9 +133,12 @@ def _build_rebar_tasks(
         # Mode A: given config code, output spacing
         if config_code and config_area:
             # Use config area (e.g. 2D25 = 982 mm²) for spacing calc
-            spacing = np.full_like(As, np.inf)
+            spacing = np.full(As.shape, np.inf)
             active = (As > 1e-6) & ~np.isnan(As)
             spacing[active] = config_area * 1000.0 / As[active]
+            # Carry inadequate nodes through — they used to read as inf,
+            # i.e. "no rebar needed", the opposite of the truth.
+            spacing[np.isnan(As)] = np.nan
             spacing = check_spacing_limits(spacing, h_mm, diameter_input)
             label_code = config_code
         else:
@@ -130,44 +150,38 @@ def _build_rebar_tasks(
             x, y, spacing, triangles, polygons, centroids,
             f'Spasi Tulangan {label_code} — {layer_label} ({dir_label})',
             'mm',
-            f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | d_eff = {d_eff:.0f} mm)',
+            subtitle,
             load_name, output_folder, method, show_mesh, theme,
             f'spacing_{label_code}_{case_label}',
             None,  # config_labels (not applicable for spacing plot)
             show_annotation,
         ))
+    elif rebar_select_codes:
+        # Mode B with custom config matching
+        tasks.append((
+            x, y, selection, triangles, polygons, centroids,
+            f'Konfigurasi Tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+            'kode',
+            subtitle,
+            load_name, output_folder, method, show_mesh, theme,
+            f'config_s{int(spacing_input)}_{case_label}',
+            sorted_codes,  # config_labels for colorbar
+            show_annotation,
+        ))
     else:
-        # Mode B: given spacing, output diameter or config
-        if rebar_select_codes:
-            # Custom config matching
-            cfg_idx, sorted_codes, sorted_areas = select_config_from_As(
-                As, rebar_select_codes, spacing_input,
-            )
-            tasks.append((
-                x, y, cfg_idx, triangles, polygons, centroids,
-                f'Konfigurasi Tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
-                'kode',
-                f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | d_eff = {d_eff:.0f} mm)',
-                load_name, output_folder, method, show_mesh, theme,
-                f'config_s{int(spacing_input)}_{case_label}',
-                sorted_codes,  # config_labels for colorbar
-                show_annotation,
-            ))
-        else:
-            # Standard diameter matching (backward compatible)
-            D_selected = calc_diameter_from_spacing(As, spacing_input)
-            tasks.append((
-                x, y, D_selected, triangles, polygons, centroids,
-                f'Diameter Tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
-                'mm',
-                f'(Method: {method.replace("-", " ").title()} | f\'c = {fc} MPa | d_eff = {d_eff:.0f} mm)',
-                load_name, output_folder, method, show_mesh, theme,
-                f'diameter_s{int(spacing_input)}_{case_label}',
-                None,  # config_labels (use default AVAILABLE_DIAMETERS)
-                show_annotation,
-            ))
+        # Mode B, standard single-diameter matching (backward compatible)
+        tasks.append((
+            x, y, selection, triangles, polygons, centroids,
+            f'Diameter Tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+            'mm',
+            subtitle,
+            load_name, output_folder, method, show_mesh, theme,
+            f'diameter_s{int(spacing_input)}_{case_label}',
+            None,  # config_labels (use default AVAILABLE_DIAMETERS)
+            show_annotation,
+        ))
 
-    return tasks
+    return tasks, As, d_eff
 
 
 def _build_shear_tasks(
@@ -180,7 +194,8 @@ def _build_shear_tasks(
 ):
     """
     Build plotting task tuples for one shear case.
-    Returns list of task tuples (Av/s plot + diameter plot).
+
+    Returns (tasks, Av_s) so the caller reuses the same array for the envelope.
     """
     tasks = []
 
@@ -192,9 +207,10 @@ def _build_shear_tasks(
     # Calculate Av/s
     Av_s = calc_shear_Av_per_s(shear_array, fc, fy, dv)
 
-    # Skip if all zeros (no shear rebar needed anywhere)
-    if np.all(Av_s == 0):
-        return tasks
+    # Skip only when no stirrups are needed anywhere AND nothing failed the
+    # web-crushing check (np.nan) — a crushing zone must always be plotted.
+    if not (np.any(Av_s > 0) or np.any(np.isnan(Av_s))):
+        return tasks, Av_s
 
     dir_label = "Arah X" if direction == 'x' else "Arah Y"
 
@@ -233,7 +249,7 @@ def _build_shear_tasks(
         show_annotation,
     ))
 
-    return tasks
+    return tasks, Av_s
 
 
 def main():
@@ -284,10 +300,15 @@ def main():
                              'Examples: --shear-select 10 13 16 19')
     parser.add_argument('--no-annotation', action='store_true',
                         help='Hide MAX marker and SECTION INADEQUATE badge on plots')
+    parser.add_argument('--no-as-min', action='store_true',
+                        help='Disable the SNI 24.4.3.2 minimum slab reinforcement '
+                             '(shrinkage & temperature). Use only to reproduce '
+                             'pre-2.0 results for comparison.')
     args = parser.parse_args()
 
     show_mesh = not args.no_mesh
     show_annotation = not args.no_annotation
+    apply_min = not args.no_as_min
     h_mm = args.thickness * 1000  # m → mm
 
     # Validate --shear-select diameters if provided
@@ -346,6 +367,10 @@ def main():
     print(f"Plate Thickness:  {h_mm:.0f} mm")
     print(f"f'c = {args.fc} MPa | fy = {args.fy} MPa | Cover = {args.cover} mm")
     print(f"{mode_desc}")
+    if apply_min:
+        print(f"As minimum (SNI 24.4.3.2): {calc_as_min(args.fy, h_mm):.0f} mm2/m")
+    else:
+        print("As minimum: NONAKTIF (--no-as-min)")
     if args.shear:
         shear_info = f"Shear Analysis: ON | s_long={args.shear_spacing_long:.0f}mm | s_trans={args.shear_spacing_trans:.0f}mm"
         if shear_select_diameters:
@@ -379,10 +404,7 @@ def main():
 
     print(f"Methods to run: {len(methods_to_run)} | Load Cases: {len(load_cases)}")
 
-    # --- Envelope accumulators ---
-    # Structure: envelope_as[case_label] = running_max_array
-    envelope_data = {}
-    shear_envelope_data = {}  # For shear Av/s envelope
+    total_failed = 0
 
     for method in methods_to_run:
         print(f"\nProcessing Method: {method.upper()}")
@@ -392,9 +414,21 @@ def main():
             else timestamp_output
         )
 
+        # --- Envelope accumulators ---
+        # Structure: envelope_data[case_label] = running_max_array
+        # MUST be per-method: each contour method produces arrays of a
+        # different length, so carrying them across methods made np.fmax
+        # fail with a broadcast error on `--method all`.
+        envelope_data = {}
+        envelope_depth = {}       # element-wise MIN d_eff (conservative)
+        shear_envelope_data = {}  # For shear Av/s envelope
+
         # --- Build MeshTopology + ValueMappers ---
         print("  [1/3] Building Value Mappers...")
         mesh = MeshTopology(df_conn, coord_dict, method)
+        if mesh.n_invalid:
+            print(f"  [WARN] {mesh.n_invalid} elemen dilewati "
+                  f"(node tidak ada di CSV koordinat).")
         value_mapper_cache = {}
 
         for lc in load_cases:
@@ -417,7 +451,7 @@ def main():
                     continue
                 m_arr = moment_arrays[moment_col]
 
-                case_tasks = _build_rebar_tasks(
+                case_tasks, As, d_eff = _build_rebar_tasks(
                     x, y, tris, polys, cents,
                     m_arr, h_mm, args.cover, args.fc, args.fy,
                     diameter_input, spacing_input, mode,
@@ -426,25 +460,20 @@ def main():
                     rebar_select_codes=rebar_select_codes,
                     config_code=config_code, config_area=config_area,
                     show_annotation=show_annotation,
+                    apply_min=apply_min,
                 )
                 tasks.extend(case_tasks)
 
                 # --- Envelope accumulation ---
-                # Extract the As array (first task is always As)
-                if layer == 'bottom':
-                    Mu = np.where(m_arr > 0, m_arr, 0.0)
-                else:
-                    Mu = np.where(m_arr < 0, np.abs(m_arr), 0.0)
-
-                D_for_depth = diameter_input if diameter_input else 16.0
-                d_eff = calc_effective_depth(h_mm, args.cover, D_for_depth, direction, layer)
-                As = calc_as_required(Mu, args.fc, args.fy, d_eff, PHI_FLEXURE)
-
-                # Update envelope (element-wise maximum)
+                # Reuse the As the plots were built from, so the envelope can
+                # never disagree with the per-case plots.
+                d_arr = np.broadcast_to(np.asarray(d_eff, dtype=float), As.shape)
                 if case_label not in envelope_data:
                     envelope_data[case_label] = As.copy()
+                    envelope_depth[case_label] = d_arr.copy()
                 else:
                     envelope_data[case_label] = np.fmax(envelope_data[case_label], As)
+                    envelope_depth[case_label] = np.fmin(envelope_depth[case_label], d_arr)
 
             return tasks
 
@@ -466,7 +495,7 @@ def main():
                     s_l = args.shear_spacing_trans
                     s_t = args.shear_spacing_long
 
-                case_tasks = _build_shear_tasks(
+                case_tasks, Av_s = _build_shear_tasks(
                     x, y, tris, polys, cents,
                     v_arr, h_mm, args.cover, args.fc, args.fy,
                     s_l, s_t,
@@ -477,11 +506,7 @@ def main():
                 )
                 tasks.extend(case_tasks)
 
-                # --- Shear envelope accumulation ---
-                D_for_depth = 16.0
-                dv = calc_effective_depth(h_mm, args.cover, D_for_depth, direction, 'bottom')
-                Av_s = calc_shear_Av_per_s(v_arr, args.fc, args.fy, dv)
-
+                # --- Shear envelope accumulation (reuses the same Av_s) ---
                 if case_label not in shear_envelope_data:
                     shear_envelope_data[case_label] = Av_s.copy()
                 else:
@@ -517,7 +542,12 @@ def main():
 
         else:
             # --- Mode: Kombinasi Beban ---
-            _, matched_map = validate_combinations(combos, set(load_cases))
+            _, matched_map, uncertain = validate_combinations(combos, load_cases)
+            warn_lines = format_resolution_warnings(uncertain)
+            if warn_lines:
+                print("  [WARN] Nama load case tidak cocok persis, hasil penyesuaian:")
+                for line in warn_lines:
+                    print(line)
             valid_combos = []
             for combo in combos:
                 is_valid = True
@@ -590,15 +620,16 @@ def main():
 
                 layer_label = "Tulangan Bawah" if layer == 'bottom' else "Tulangan Atas"
                 dir_label = "Arah X" if direction == 'x' else "Arah Y"
-                D_for_depth = diameter_input if diameter_input else 16.0
-                d_eff = calc_effective_depth(h_mm, args.cover, D_for_depth, direction, layer)
+                depth_label = format_depth_range(envelope_depth[case_label])
+                env_subtitle = (f'(Maximum dari seluruh kasus '
+                                f'| f\'c = {args.fc} MPa | d_eff = {depth_label})')
 
                 # As envelope plot
                 all_tasks.append((
                     x, y, As_env, tris, polys, cents,
                     f'ENVELOPE As — {layer_label} ({dir_label})',
                     'mm²/m',
-                    f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | d_eff = {d_eff:.0f} mm)',
+                    env_subtitle,
                     'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                     f'ENVELOPE_As_{case_label}',
                     None,  # config_labels
@@ -608,9 +639,10 @@ def main():
                 # Spacing/Diameter/Config envelope plot
                 if mode == 'spacing':
                     if config_code and config_area:
-                        spacing_env = np.full_like(As_env, np.inf)
+                        spacing_env = np.full(As_env.shape, np.inf)
                         active_env = (As_env > 1e-6) & ~np.isnan(As_env)
                         spacing_env[active_env] = config_area * 1000.0 / As_env[active_env]
+                        spacing_env[np.isnan(As_env)] = np.nan
                         spacing_env = check_spacing_limits(spacing_env, h_mm, diameter_input)
                         label_code = config_code
                     else:
@@ -621,7 +653,7 @@ def main():
                         x, y, spacing_env, tris, polys, cents,
                         f'ENVELOPE Spasi {label_code} — {layer_label} ({dir_label})',
                         'mm',
-                        f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | d_eff = {d_eff:.0f} mm)',
+                        env_subtitle,
                         'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                         f'ENVELOPE_spacing_{label_code}_{case_label}',
                         None,  # config_labels
@@ -636,7 +668,7 @@ def main():
                             x, y, cfg_idx, tris, polys, cents,
                             f'ENVELOPE Konfigurasi s={int(spacing_input)}mm — {layer_label} ({dir_label})',
                             'kode',
-                            f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | d_eff = {d_eff:.0f} mm)',
+                            env_subtitle,
                             'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                             f'ENVELOPE_config_s{int(spacing_input)}_{case_label}',
                             sorted_codes,  # config_labels
@@ -648,7 +680,7 @@ def main():
                             x, y, D_env, tris, polys, cents,
                             f'ENVELOPE Diameter s={int(spacing_input)}mm — {layer_label} ({dir_label})',
                             'mm',
-                            f'(Maximum dari seluruh kasus | f\'c = {args.fc} MPa | d_eff = {d_eff:.0f} mm)',
+                            env_subtitle,
                             'ENVELOPE', envelope_folder, method, show_mesh, args.theme,
                             f'ENVELOPE_diameter_s{int(spacing_input)}_{case_label}',
                             None,  # config_labels
@@ -727,10 +759,34 @@ def main():
                         errors.append(result)
 
         print(f"  [OK] Successfully generated {len(generated_files)} rebar plots.")
+
+        # Surface inadequate zones in the console — previously they were only
+        # visible by opening every PNG.
+        inadequate = {}
+        for label, arr in envelope_data.items():
+            n_bad = int(np.count_nonzero(np.isnan(arr)))
+            if n_bad:
+                inadequate[label] = n_bad
+        for label, arr in shear_envelope_data.items():
+            n_bad = int(np.count_nonzero(np.isnan(arr)))
+            if n_bad:
+                inadequate[label] = n_bad
+        if inadequate:
+            print("  [SECTION INADEQUATE] penampang tidak memenuhi syarat:")
+            for label, n_bad in sorted(inadequate.items()):
+                print(f"    - {label}: {n_bad} titik")
+
         if errors:
+            total_failed += len(errors)
             print(f"  [WARN] {len(errors)} plots failed:")
             for err in errors[:5]:
                 print(f"    - {err.get('task', '?')}: {err.get('error', '?')}")
+
+    # Failed plots used to exit 0 under a "[SUCCESS]" banner, so a run that
+    # produced nothing looked identical to a good one.
+    if total_failed:
+        print(f"\n[FAILED] {total_failed} plot gagal dibuat. Lihat pesan di atas.")
+        return 1
 
     print("\n[SUCCESS] All rebar analysis plots generated.")
     return 0
@@ -742,3 +798,7 @@ def entry_point():
     from multiprocessing import freeze_support
     freeze_support()
     sys.exit(main())
+
+
+if __name__ == '__main__':
+    entry_point()

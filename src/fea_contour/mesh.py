@@ -29,6 +29,11 @@ class MeshTopology:
         self.n4 = df_conn['4'].values.astype(int)
         self.is_quad = (self.n4 != 0) & (self.n4 != self.n3)
         self.n_elem = len(self.elem_ids)
+        # True where every node of the element has coordinates. Elements whose
+        # connectivity references a node missing from the coordinate CSV are
+        # skipped by every topology builder, so consumers MUST check this mask
+        # before indexing per-element arrays.
+        self.valid_mask = np.zeros(self.n_elem, dtype=bool)
         self._build_topology()
 
     def _get_nodes_for_elem(self, idx):
@@ -36,6 +41,11 @@ class MeshTopology:
         if self.is_quad[idx]:
             return [self.n1[idx], self.n2[idx], self.n3[idx], self.n4[idx]]
         return [self.n1[idx], self.n2[idx], self.n3[idx]]
+
+    @property
+    def n_invalid(self):
+        """Number of elements skipped because a node had no coordinates."""
+        return int(self.n_elem - self.valid_mask.sum())
 
     def _build_topology(self):
         """Dispatch to the appropriate topology builder."""
@@ -59,6 +69,7 @@ class MeshTopology:
         for i in range(self.n_elem):
             nodes = self._get_nodes_for_elem(i)
             if all(n in self.coord_dict for n in nodes):
+                self.valid_mask[i] = True
                 unique_nodes.update(nodes)
 
         self.unique_nodes = sorted(unique_nodes)
@@ -102,12 +113,16 @@ class MeshTopology:
         total_nodes = np.sum(nodes_per_elem)
         self.x = np.empty(total_nodes, dtype=np.float64)
         self.y = np.empty(total_nodes, dtype=np.float64)
-        self.node_idx_per_elem = np.empty((self.n_elem, 4), dtype=np.int32)
+        # -1 (not np.empty) so a skipped element can never be mistaken for a
+        # real index: reading uninitialised memory here silently scattered
+        # values into random nodes.
+        self.node_idx_per_elem = np.full((self.n_elem, 4), -1, dtype=np.int32)
 
         node_idx = tri_idx = 0
         for i in range(self.n_elem):
             nodes = self._get_nodes_for_elem(i)
             if all(n in self.coord_dict for n in nodes):
+                self.valid_mask[i] = True
                 start_idx = node_idx
                 for n in nodes:
                     self.x[node_idx] = self.coord_dict[n]['X']
@@ -144,3 +159,4 @@ class MeshTopology:
                 self.valid_elem_indices.append(i)
 
         self.valid_elem_ids = self.elem_ids[self.valid_elem_indices]
+        self.valid_mask[self.valid_elem_indices] = True
