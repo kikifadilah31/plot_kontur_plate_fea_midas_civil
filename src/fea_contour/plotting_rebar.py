@@ -3,6 +3,8 @@ Rebar-specific plotting engine — Matplotlib OO API for multiprocessing.
 """
 
 import os
+import copy
+
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -22,6 +24,71 @@ REBAR_CMAP = 'YlOrRd'
 
 # Colors
 INADEQUATE_COLOR = '#404040'  # Dark Gray for Section Inadequate zones
+
+# Hand-picked categorical palette. Index 0 is reserved for "no rebar needed".
+CATEGORICAL_COLORS = [
+    '#FFFFFF',  # 0 (Safe / no rebar) -> White
+    '#3498DB',  # 1 (Blue)
+    '#2ECC71',  # 2 (Green)
+    '#F1C40F',  # 3 (Yellow)
+    '#E67E22',  # 4 (Orange)
+    '#E74C3C',  # 5 (Red)
+    '#9B59B6',  # 6 (Purple)
+    '#FF1493',  # 7 (Deep Pink)
+    '#00CED1',  # 8 (Dark Turquoise)
+    '#FF6347',  # 9 (Tomato)
+    '#00FA9A',  # 10 (Medium Spring Green)
+    '#BA55D3',  # 11 (Medium Orchid)
+    '#FF8C00',  # 12 (Dark Orange)
+    '#4169E1',  # 13 (Royal Blue)
+    '#DC143C',  # 14 (Crimson)
+    '#00FF7F',  # 15 (Spring Green)
+    '#8B008B',  # 16 (Dark Magenta)
+    '#FFD700',  # 17 (Gold)
+    '#1E90FF',  # 18 (Dodger Blue)
+    '#FF4500',  # 19 (Orange Red)
+    '#7B68EE',  # 20 (Medium Slate Blue)
+    '#32CD32',  # 21 (Lime Green)
+    '#FF69B4',  # 22 (Hot Pink)
+    '#20B2AA',  # 23 (Light Sea Green)
+    '#CD853F',  # 24 (Peru)
+]
+
+
+def build_categorical_colors(n_bins):
+    """
+    Build exactly `n_bins` colors for a discrete rebar colormap.
+
+    BoundaryNorm requires ncolors >= number of bins. Selecting all 24 rebar
+    configurations needs 26 bins, which overran the 25-entry hand-picked
+    palette and made every config plot fail with a BoundaryNorm ValueError —
+    so anything beyond the hand-picked list is topped up from 'turbo'.
+
+    Index 0 stays white (no rebar needed) and the last bin is always the
+    Section Inadequate colour.
+
+    Parameters
+    ----------
+    n_bins : int
+        Number of bins the BoundaryNorm will define (len(boundaries) - 1).
+
+    Returns
+    -------
+    list of str/tuple : colors, length exactly n_bins.
+    """
+    if n_bins < 1:
+        raise ValueError(f"n_bins must be >= 1, got {n_bins}")
+
+    colors = list(CATEGORICAL_COLORS)
+    if n_bins > len(colors):
+        n_extra = n_bins - len(colors)
+        extra = matplotlib.colormaps['turbo'](np.linspace(0.05, 0.95, n_extra))
+        colors += [mcolors.to_hex(c) for c in extra]
+
+    colors = colors[:n_bins]
+    colors[-1] = INADEQUATE_COLOR
+    return colors
+
 
 import threading
 thread_local_rb = threading.local()
@@ -72,10 +139,21 @@ def generate_rebar_plot_worker(task):
         rebar_ax = rebar_fig.add_subplot(111)
         rebar_ax.set_facecolor(bg_col)
 
+        # element-center supplies polygons instead of node arrays (x/y are
+        # None), so derive the extents from the polygon corners.
+        if contour_method == 'element-center':
+            if polygons:
+                coords_x = np.array([p[0] for poly in polygons for p in poly])
+                coords_y = np.array([p[1] for poly in polygons for p in poly])
+            else:
+                coords_x = coords_y = np.empty(0, dtype=np.float64)
+        else:
+            coords_x, coords_y = np.asarray(x), np.asarray(y)
+
         # Dynamic figure resizing based on data geometry
-        if len(x) > 0 and len(y) > 0:
-            x_range = np.max(x) - np.min(x)
-            y_range = np.max(y) - np.min(y)
+        if len(coords_x) > 0 and len(coords_y) > 0:
+            x_range = np.max(coords_x) - np.min(coords_x)
+            y_range = np.max(coords_y) - np.min(coords_y)
             if x_range > 0 and y_range > 0:
                 data_ratio = x_range / y_range
                 fig_w = 14.0
@@ -112,35 +190,6 @@ def generate_rebar_plot_worker(task):
         is_config_plot = (config_labels is not None) and not is_diameter_plot
         is_shear = 'shear' in fn_lower
 
-        # Extended categorical palette (enough for up to 25 configs)
-        CATEGORICAL_COLORS = [
-            '#FFFFFF',  # 0 (Safe / no rebar) -> White
-            '#3498DB',  # 1 (Blue)
-            '#2ECC71',  # 2 (Green)
-            '#F1C40F',  # 3 (Yellow)
-            '#E67E22',  # 4 (Orange)
-            '#E74C3C',  # 5 (Red)
-            '#9B59B6',  # 6 (Purple)
-            '#FF1493',  # 7 (Deep Pink)
-            '#00CED1',  # 8 (Dark Turquoise)
-            '#FF6347',  # 9 (Tomato)
-            '#00FA9A',  # 10 (Medium Spring Green)
-            '#BA55D3',  # 11 (Medium Orchid)
-            '#FF8C00',  # 12 (Dark Orange)
-            '#4169E1',  # 13 (Royal Blue)
-            '#DC143C',  # 14 (Crimson)
-            '#00FF7F',  # 15 (Spring Green)
-            '#8B008B',  # 16 (Dark Magenta)
-            '#FFD700',  # 17 (Gold)
-            '#1E90FF',  # 18 (Dodger Blue)
-            '#FF4500',  # 19 (Orange Red)
-            '#7B68EE',  # 20 (Medium Slate Blue)
-            '#32CD32',  # 21 (Lime Green)
-            '#FF69B4',  # 22 (Hot Pink)
-            '#20B2AA',  # 23 (Light Sea Green)
-            '#CD853F',  # 24 (Peru)
-        ]
-
         if is_config_plot:
             # Custom config mode: z values are 1-based config indices
             n_configs = len(config_labels)
@@ -148,10 +197,8 @@ def generate_rebar_plot_worker(task):
             boundaries = [-0.5, 0.5] + [i + 0.5 for i in range(1, n_configs + 1)] + [n_configs + 1.5]
             n_bins = len(boundaries) - 1
 
-            cmap_colors = CATEGORICAL_COLORS[:n_bins]
-            # Last bin = overflow / inadequate
-            cmap_colors[-1] = mcolors.to_rgba(INADEQUATE_COLOR)
-            cmap = mcolors.ListedColormap(cmap_colors)
+            # Last bin = overflow / inadequate (handled inside the helper)
+            cmap = mcolors.ListedColormap(build_categorical_colors(n_bins))
             norm = mcolors.BoundaryNorm(boundaries, cmap.N)
             levels = boundaries
 
@@ -170,10 +217,8 @@ def generate_rebar_plot_worker(task):
             # and the overflow bin [dN+3, dN+6] is reserved for INADEQUATE_COLOR.
             boundaries = [-0.1, 0.1] + list(AVAIL_D) + [AVAIL_D[-1] + 3, AVAIL_D[-1] + 6]
             n_bins = len(boundaries) - 1
-            
-            cmap_colors = CATEGORICAL_COLORS[:n_bins]
-            cmap_colors[-1] = mcolors.to_rgba(INADEQUATE_COLOR)
-            cmap = mcolors.ListedColormap(cmap_colors)
+
+            cmap = mcolors.ListedColormap(build_categorical_colors(n_bins))
             norm = mcolors.BoundaryNorm(boundaries, cmap.N)
             levels = boundaries
         else:
@@ -223,8 +268,16 @@ def generate_rebar_plot_worker(task):
         else:
             edge_color = 'black' if show_mesh else 'face'
             line_width = 0.3 if show_mesh else 0
+
+            # Mask the inadequate elements so they take the "bad" colour.
+            # Feeding them through as 0 painted them white — visually identical
+            # to "no rebar needed", the exact opposite of the truth.
+            z_poly = np.ma.masked_where(nan_mask, z_plot)
+            cmap = copy.copy(cmap)
+            cmap.set_bad(INADEQUATE_COLOR)
+
             pc = PolyCollection(
-                polygons, array=z_plot, cmap=cmap, norm=norm,
+                polygons, array=z_poly, cmap=cmap, norm=norm,
                 edgecolors=edge_color, linewidths=line_width, alpha=1.0,
             )
             rebar_ax.add_collection(pc)
@@ -234,11 +287,9 @@ def generate_rebar_plot_worker(task):
             else:
                 max_xy = (0, 0)
 
-            if polygons:
-                all_x = [p[0] for poly in polygons for p in poly]
-                all_y = [p[1] for poly in polygons for p in poly]
-                rebar_ax.set_xlim(min(all_x) - 1.0, max(all_x) + 1.0)
-                rebar_ax.set_ylim(min(all_y) - 1.0, max(all_y) + 1.0)
+            if len(coords_x) > 0:
+                rebar_ax.set_xlim(coords_x.min() - 1.0, coords_x.max() + 1.0)
+                rebar_ax.set_ylim(coords_y.min() - 1.0, coords_y.max() + 1.0)
 
         # --- Annotations ---
         if show_annotation:
@@ -250,8 +301,8 @@ def generate_rebar_plot_worker(task):
                                color='#DC143C', lw=1.5, connectionstyle='arc3,rad=0.3')
 
             # Smart HA positioning
-            x_range_data = np.max(x) - np.min(x)
-            x_min_data = np.min(x)
+            x_range_data = np.max(coords_x) - np.min(coords_x)
+            x_min_data = np.min(coords_x)
             ha = 'right' if max_xy[0] > x_min_data + 0.8 * x_range_data else \
                  'left' if max_xy[0] < x_min_data + 0.2 * x_range_data else 'center'
 

@@ -18,7 +18,9 @@ from .config import (
     OUTPUT_FOLDER,
 )
 from .math_utils import safe_filename
-from .combination import parse_combination_file, validate_combinations
+from .combination import (
+    parse_combination_file, validate_combinations, format_resolution_warnings,
+)
 from .io_utils import load_csv_inputs, build_coord_dict, resolve_input_files
 from .mesh import MeshTopology
 from .values import ValueMapper
@@ -130,6 +132,9 @@ def main():
         # --- Build MeshTopology + ValueMappers ---
         print("  [1/3] Building Mesh & Value Mappers...")
         mesh = MeshTopology(df_conn, coord_dict, method)
+        if mesh.n_invalid:
+            print(f"  [WARN] {mesh.n_invalid} elemen dilewati "
+                  f"(node tidak ada di CSV koordinat).")
         value_mapper_cache = {}
 
         for lc in load_cases:
@@ -166,7 +171,12 @@ def main():
                 print(f"    [{report_count}] {lc}")
         else:
             # Process load combinations
-            _, matched_map = validate_combinations(combos, set(load_cases))
+            _, matched_map, uncertain = validate_combinations(combos, load_cases)
+            warn_lines = format_resolution_warnings(uncertain)
+            if warn_lines:
+                print("  [WARN] Nama load case tidak cocok persis, hasil penyesuaian:")
+                for line in warn_lines:
+                    print(line)
             valid_combos = []
             for combo in combos:
                 resolved = []
@@ -241,3 +251,7 @@ def entry_point():
     """Console script entry point (called by pyproject.toml [project.scripts])."""
     import sys
     sys.exit(main())
+
+
+if __name__ == '__main__':
+    entry_point()

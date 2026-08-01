@@ -10,6 +10,13 @@ DEFAULT_THICKNESS = 0.400  # meters (can be overridden by CLI --thickness)
 STRIP_WIDTH = 1.0           # meters (hardcoded: FEA plate/shell output is always per 1m width)
 
 # =============================================================================
+# Material Constants (SNI 2847:2019 / ACI 318-19)
+# =============================================================================
+ES_STEEL = 200000.0        # MPa — steel modulus of elasticity (SNI 20.2.2.2)
+LAMBDA_CONCRETE = 1.0      # normal-weight concrete modification factor (SNI 19.2.4)
+EPSILON_CU = 0.003         # ultimate concrete compressive strain (SNI 22.2.2.1)
+
+# =============================================================================
 # Column Definitions
 # =============================================================================
 FORCE_COLUMNS = [

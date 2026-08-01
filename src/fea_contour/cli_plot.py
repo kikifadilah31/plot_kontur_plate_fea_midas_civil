@@ -18,7 +18,9 @@ from .config import (
     STRESS_PAIRS, OUTPUT_FOLDER,
 )
 from .math_utils import calculate_stress_vectorized, safe_filename
-from .combination import parse_combination_file, validate_combinations
+from .combination import (
+    parse_combination_file, validate_combinations, format_resolution_warnings,
+)
 from .io_utils import load_csv_inputs, build_coord_dict, resolve_input_files
 from .mesh import MeshTopology
 from .values import ValueMapper
@@ -77,6 +79,8 @@ def main():
         combos = parse_combination_file(args.comb)
         print(f"Combinations loaded: {len(combos)}")
 
+    total_failed = 0
+
     for method in methods_to_run:
         print(f"\nProcessing Method: {method.upper()}")
         method_output = (
@@ -91,6 +95,9 @@ def main():
         # =====================================================================
         print("  [1/3] Building Value Mappers (Heavy Computation)...")
         mesh = MeshTopology(df_conn, coord_dict, method)  # BUILD ONCE!
+        if mesh.n_invalid:
+            print(f"  [WARN] {mesh.n_invalid} elemen dilewati "
+                  f"(node tidak ada di CSV koordinat).")
         value_mapper_cache = {}
 
         for lc in load_cases:
@@ -124,9 +131,12 @@ def main():
         print("  [2/3] Building Global Task Pool (Fast Cache Lookup)...")
         all_tasks = []
 
-        first_vm = value_mapper_cache[load_cases[0]]
-        cols_to_plot = list(first_vm.cached_z.keys()) if first_vm.cached_z else []
-        cols_to_plot = [c for c in cols_to_plot if c in PLOTTABLE_COLUMNS]
+        # Union across ALL load cases — taking only the first one silently
+        # dropped columns that happen to be absent from it.
+        available_cols = set()
+        for vm in value_mapper_cache.values():
+            available_cols.update(vm.cached_z.keys())
+        cols_to_plot = [c for c in PLOTTABLE_COLUMNS if c in available_cols]
 
         # --- Load case tasks ---
         for lc in load_cases:
@@ -154,7 +164,12 @@ def main():
                     ))
 
         # --- Combination tasks ---
-        _, matched_map = validate_combinations(combos, set(load_cases))
+        _, matched_map, uncertain = validate_combinations(combos, load_cases)
+        warn_lines = format_resolution_warnings(uncertain)
+        if warn_lines:
+            print("  [WARN] Nama load case tidak cocok persis, hasil penyesuaian:")
+            for line in warn_lines:
+                print(line)
         valid_combos = []
         for combo in combos:
             is_valid = True
@@ -224,9 +239,16 @@ def main():
 
         print(f"  [OK] Successfully generated {len(generated_files)} plots.")
         if errors:
+            total_failed += len(errors)
             print(f"  [WARN] {len(errors)} plots failed:")
             for err in errors[:5]:
                 print(f"    - {err.get('task', '?')}: {err.get('error', '?')}")
+
+    # Failed plots used to exit 0 under a "[SUCCESS]" banner, so a run that
+    # produced nothing looked identical to a good one.
+    if total_failed:
+        print(f"\n[FAILED] {total_failed} plot gagal dibuat. Lihat pesan di atas.")
+        return 1
 
     print("\n[SUCCESS] All plots generated in the output folder.")
     return 0
@@ -238,3 +260,7 @@ def entry_point():
     from multiprocessing import freeze_support
     freeze_support()
     sys.exit(main())
+
+
+if __name__ == '__main__':
+    entry_point()
