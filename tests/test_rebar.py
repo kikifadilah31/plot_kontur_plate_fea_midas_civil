@@ -11,7 +11,7 @@ import pytest
 
 from shell_kit.rebar import (
     AVAILABLE_DIAMETERS, PHI_FLEXURE, PHI_SHEAR, STRIP_WIDTH_MM,
-    calc_beta1, calc_as_min, calc_rho_max,
+    calc_beta1, calc_as_min, calc_as_min_per_face, calc_rho_min, calc_rho_max,
     calc_effective_depth, calc_as_required, apply_as_min,
     calc_spacing_from_diameter, calc_diameter_from_spacing,
     calc_min_spacing, check_spacing_limits,
@@ -68,12 +68,14 @@ def test_as_min_scales_with_gross_thickness_not_effective_depth():
 
 
 def test_apply_as_min_raises_low_values():
+    """One layer carries its SHARE of the section minimum, not the whole."""
     As = np.array([0.0, 100.0, 5000.0])
     out = apply_as_min(As, FY, 400.0)
-    as_min = calc_as_min(FY, 400.0)
-    assert out[0] == pytest.approx(as_min)
-    assert out[1] == pytest.approx(as_min)
+    per_face = calc_as_min_per_face(FY, 400.0)
+    assert out[0] == pytest.approx(per_face)
+    assert out[1] == pytest.approx(per_face)
     assert out[2] == pytest.approx(5000.0)   # already above the minimum
+    assert per_face == pytest.approx(calc_as_min(FY, 400.0) / 2)
 
 
 def test_apply_as_min_does_not_rescue_a_failed_section():
@@ -382,7 +384,16 @@ def test_iterative_solve_applies_as_min_by_default():
     As, _, _, _ = solve_rebar_iterative(
         Mu, FC, FY, 400.0, 40.0, 'x', 'bottom', 150.0,
     )
-    assert As[0] == pytest.approx(calc_as_min(FY, 400.0))
+    assert As[0] == pytest.approx(calc_as_min_per_face(FY, 400.0))
+
+
+def test_iterative_solve_honours_the_surface_zone_cap():
+    Mu = np.array([1.0])
+    As, _, _, _ = solve_rebar_iterative(
+        Mu, FC, FY, 3000.0, 40.0, 'x', 'bottom', 150.0, surface_zone=300.0,
+    )
+    assert As[0] == pytest.approx(calc_as_min_per_face(FY, 3000.0,
+                                                       surface_zone=300.0))
 
     As_off, _, _, _ = solve_rebar_iterative(
         Mu, FC, FY, 400.0, 40.0, 'x', 'bottom', 150.0, apply_min=False,
@@ -415,3 +426,59 @@ def test_depth_label_shows_a_range_when_it_varies():
 
 def test_depth_label_accepts_a_scalar():
     assert format_depth_range(352.0) == '352 mm'
+
+
+# =============================================================================
+# As,min distribution — the clause states a section total, not a per-face amount
+# =============================================================================
+
+def test_section_total_is_split_between_the_two_faces():
+    """
+    Applying the full clause amount to every layer placed twice the required
+    steel in each direction: 4 layers x rho.Ag = 0.0072.Ag against the
+    0.0036.Ag the code asks for across X and Y.
+    """
+    total = calc_as_min(FY, 400.0)
+    per_face = calc_as_min_per_face(FY, 400.0)
+    assert per_face == pytest.approx(total / 2)
+    assert 2 * per_face == pytest.approx(total)
+
+
+def test_section_total_still_matches_the_clause():
+    """calc_as_min stays the quantity the code states — rho x b x h."""
+    assert calc_as_min(FY, 400.0) == pytest.approx(calc_rho_min(FY) * 1000 * 400)
+
+
+@pytest.mark.parametrize('h,cap,expected_t', [
+    (200.0, 300.0, 100.0),    # h/2 governs, cap never bites
+    (600.0, 300.0, 300.0),    # exactly at the boundary
+    (3000.0, 300.0, 300.0),   # cap governs — a raft is not a thick slab
+    (3000.0, None, 1500.0),   # without the cap it scales with the whole depth
+])
+def test_surface_zone_caps_the_thickness_per_face(h, cap, expected_t):
+    got = calc_as_min_per_face(FY, h, surface_zone=cap)
+    assert got == pytest.approx(calc_rho_min(FY) * 1000 * expected_t)
+
+
+def test_surface_zone_never_increases_the_requirement():
+    """A cap can only reduce; it must not raise a thin slab's minimum."""
+    for h in (150.0, 300.0, 600.0, 1200.0):
+        assert (calc_as_min_per_face(FY, h, surface_zone=300.0)
+                <= calc_as_min_per_face(FY, h))
+
+
+def test_thick_raft_minimum_becomes_buildable():
+    """
+    3 m pilecap: the old basis demanded 5400 mm2/m per layer (about D25-90 in
+    all four layers as pure minimum), which is not what the clause intends.
+    """
+    old_basis = calc_as_min(FY, 3000.0)
+    new_basis = calc_as_min_per_face(FY, 3000.0, surface_zone=300.0)
+    assert old_basis == pytest.approx(5400.0)
+    assert new_basis == pytest.approx(540.0)
+
+
+def test_rho_min_follows_the_code_table():
+    assert calc_rho_min(400.0) == pytest.approx(0.0020)
+    assert calc_rho_min(420.0) == pytest.approx(0.0018)
+    assert calc_rho_min(1000.0) == pytest.approx(0.0014)

@@ -24,7 +24,7 @@ from .rebar import (
     DEFAULT_FC, DEFAULT_FY, DEFAULT_COVER, PHI_FLEXURE,
     AVAILABLE_DIAMETERS, SHEAR_DIAMETERS,
     REBAR_CONFIG_TABLE,
-    calc_as_min,
+    calc_as_min, calc_as_min_per_face,
     calc_effective_depth, calc_as_required, apply_as_min,
     calc_spacing_from_diameter, calc_diameter_from_spacing,
     check_spacing_limits,
@@ -75,7 +75,7 @@ def _build_rebar_tasks(
     direction, layer, case_label,
     load_name, output_folder, method, show_mesh, theme,
     rebar_select_codes=None, config_code=None, config_area=None,
-    show_annotation=True, apply_min=True,
+    show_annotation=True, apply_min=True, surface_zone=None,
 ):
     """
     Build plotting task tuples for one rebar case.
@@ -102,14 +102,14 @@ def _build_rebar_tasks(
         d_eff = calc_effective_depth(h_mm, cover, diameter_input, direction, layer)
         As = calc_as_required(Mu, fc, fy, d_eff, PHI_FLEXURE)
         if apply_min:
-            As = apply_as_min(As, fy, h_mm)
+            As = apply_as_min(As, fy, h_mm, surface_zone=surface_zone)
         selection = sorted_codes = None
     else:
         # Mode B: d and the bar selection are solved together
         As, d_eff, selection, sorted_codes = solve_rebar_iterative(
             Mu, fc, fy, h_mm, cover, direction, layer,
             spacing_input, config_codes=rebar_select_codes,
-            apply_min=apply_min,
+            apply_min=apply_min, surface_zone=surface_zone,
         )
 
     layer_label = "Tulangan Bawah" if layer == 'bottom' else "Tulangan Atas"
@@ -123,10 +123,11 @@ def _build_rebar_tasks(
         'figures': [],
     }
 
-    # Skip only when this face carries no moment at all. Testing As instead
-    # would hide two things: layers held up purely by minimum steel, and
-    # layers that are inadequate everywhere.
-    if not np.any(Mu > 1e-9):
+    # A face with no moment anywhere still needs shrinkage and temperature
+    # steel, so it keeps its layer — carrying As_min alone. Dropping it left
+    # the report silent about reinforcement the code actually requires.
+    # Without the minimum enabled there is genuinely nothing to draw.
+    if not np.any(Mu > 1e-9) and not apply_min:
         return tasks, result
 
     depth_label = format_depth_range(d_eff)
@@ -358,7 +359,14 @@ def run(args):
     print(f"f'c = {args.fc} MPa | fy = {args.fy} MPa | Cover = {args.cover} mm")
     print(f"{mode_desc}")
     if apply_min:
-        print(f"As minimum (SNI 24.4.3.2): {calc_as_min(args.fy, h_mm):.0f} mm2/m")
+        sz = args.as_min_surface_zone
+        total = calc_as_min(args.fy, h_mm)
+        per_face = calc_as_min_per_face(args.fy, h_mm, surface_zone=sz)
+        print(f"As minimum (SNI 24.4.3.2): {total:.0f} mm2/m penampang "
+              f"-> {per_face:.0f} mm2/m per lapis")
+        if sz:
+            print(f"  Zona permukaan dibatasi {sz:.0f} mm per muka "
+                  f"(ACI 350-06 7.12.2.1, di luar huruf SNI 2847)")
     else:
         print("As minimum: NONAKTIF (--no-as-min)")
     if args.shear:
@@ -468,7 +476,7 @@ def run(args):
                     rebar_select_codes=rebar_select_codes,
                     config_code=config_code, config_area=config_area,
                     show_annotation=show_annotation,
-                    apply_min=apply_min,
+                    apply_min=apply_min, surface_zone=args.as_min_surface_zone,
                 )
                 tasks.extend(case_tasks)
 
