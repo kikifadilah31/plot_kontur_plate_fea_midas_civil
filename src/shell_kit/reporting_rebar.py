@@ -9,7 +9,9 @@ tells you there is a problem without telling you where to look.
 
 import numpy as np
 
-from .rebar import calc_as_min, calc_rho_max, calc_beta1
+from .rebar import (
+    calc_as_min, calc_as_min_per_face, calc_rho_max, calc_beta1,
+)
 from .reporting_typst import TYPST_PREAMBLE, _esc, _figure_block, _h, _head
 
 
@@ -213,7 +215,11 @@ def render_rebar_report_md(title, cases, params, figures=None,
     r.append(f"| Metode kontur | {params['method'].replace('-', ' ').title()} |")
     r.append(f"| Mode perhitungan | {params['mode_desc']} |")
     if params.get('apply_min'):
-        r.append(f"| As minimum (SNI 24.4.3.2) | {params['as_min']:.0f} mm²/m |")
+        r.append(f"| As minimum penampang (SNI 24.4.3.2) | {params['as_min']:.0f} mm²/m |")
+        r.append(f"| As minimum **per lapis** | {params['as_min_face']:.0f} mm²/m |")
+        if params.get('surface_zone'):
+            r.append(f"| Batas zona permukaan | {params['surface_zone']:.0f} mm "
+                     "(ACI 350-06 §7.12.2.1) |")
     else:
         r.append("| As minimum | **NONAKTIF** (`--no-as-min`) |")
     r.append(f"| ρ maksimum (SNI Tabel 21.2.2) | {params['rho_max']:.5f} |")
@@ -345,7 +351,13 @@ def render_rebar_report_typst(title, cases, params, figures=None,
     t.append(f'  [Metode kontur], [{params["method"].replace("-", " ").title()}],')
     t.append(f'  [Mode perhitungan], [{_esc(params["mode_desc"])}],')
     if params.get('apply_min'):
-        t.append(f'  [As minimum (SNI 24.4.3.2)], [{params["as_min"]:.0f} mm#super[2]/m],')
+        t.append(f'  [As minimum penampang (SNI 24.4.3.2)], '
+                 f'[{params["as_min"]:.0f} mm#super[2]/m],')
+        t.append(f'  [As minimum *per lapis*], '
+                 f'[{params["as_min_face"]:.0f} mm#super[2]/m],')
+        if params.get('surface_zone'):
+            t.append(f'  [Batas zona permukaan], '
+                     f'[{params["surface_zone"]:.0f} mm (ACI 350)],')
     else:
         t.append('  [As minimum], [*NONAKTIF*],')
     t.append(f'  [#sym.rho maksimum], [{params["rho_max"]:.5f}],')
@@ -461,6 +473,9 @@ def build_params(args, h_mm, mode_desc, method, apply_min, generated):
         'mode_desc': mode_desc,
         'apply_min': apply_min,
         'as_min': calc_as_min(args.fy, h_mm),
+        'as_min_face': calc_as_min_per_face(
+            args.fy, h_mm, surface_zone=getattr(args, 'as_min_surface_zone', None)),
+        'surface_zone': getattr(args, 'as_min_surface_zone', None),
         'rho_max': calc_rho_max(args.fc, args.fy),
         'beta1': calc_beta1(args.fc),
         'generated': generated,

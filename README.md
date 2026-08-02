@@ -1,5 +1,5 @@
 # shell-kit
-**Versi 3.1.0 | Post-processing pelat/shell Midas Civil**
+**Versi 3.2.0 | Post-processing pelat/shell Midas Civil**
 
 Alat baris perintah untuk mengolah hasil elemen pelat/shell dari Midas Civil (atau solver sejenis): kontur gaya dalam, desain tulangan menurut SNI 2847:2019, dan laporan teknis **PDF** lengkap dengan diagram.
 
@@ -7,6 +7,18 @@ Alat baris perintah untuk mengolah hasil elemen pelat/shell dari Midas Civil (at
 shell-kit plot  --method all --no-mesh
 shell-kit rebar --fc 30 --fy 420 --spacing 150 --report --format pdf
 ```
+
+---
+
+## ⚠️ Baru di 3.2.0 — Koreksi dasar tulangan minimum
+
+**Hasil tulangan minimum berubah. Zona yang selama ini dikendalikan $A_{s,min}$ kini kira-kira separuhnya.**
+
+$\rho_{min} \cdot b \cdot h$ adalah jumlah **total satu arah menembus seluruh tebal**, bukan jatah satu muka. Versi sebelumnya menerapkannya penuh ke keempat lapis — memasang $0{,}0072 A_g$ padahal yang diminta $0{,}0036 A_g$, yaitu **dua kali lipat per arah**. Sekarang jumlah itu dibagi antara muka atas dan bawah.
+
+Ditambah `--as-min-surface-zone` untuk penampang tebal: pada pilecap 3 m, dasar lama menuntut 5400 mm²/m per lapis (sekitar D25–90 di keempat lapis, semata-mata sebagai minimum). Dengan `--as-min-surface-zone 300` turun ke 540 mm²/m. Rinciannya di [Tulangan Minimum](#-mathematical-context).
+
+Perubahan lain: muka yang tidak bermomen sama sekali kini **tetap** mendapat lapis berisi $A_{s,min}$ — sebelumnya dilewati sepenuhnya, padahal susut & suhu tetap menuntut tulangan di situ.
 
 ---
 
@@ -261,6 +273,7 @@ Menghitung kebutuhan tulangan pelat dari momen dan geser hasil FEM, lalu memetak
 | `--spacing` | **Mode B** — spasi terpasang (mm), output = **tulangan** | `150` |
 | `--rebar-select` | Batasi pilihan konfigurasi untuk Mode B (cth: `16 22 2D25 2D32`) | *(D13–D32)* |
 | `--no-as-min` | Nonaktifkan tulangan minimum SNI 24.4.3.2 | `False` |
+| `--as-min-surface-zone` | Batasi tebal per muka untuk tulangan minimum (mm), mis. `300`. Untuk rakit/pilecap tebal | *(tanpa batas)* |
 
 **Opsi khusus — geser**
 
@@ -416,14 +429,38 @@ $$ D_s = \sqrt{\frac{4 \cdot (A_v/s) \cdot s_{\text{longitudinal}} \cdot s_{\tex
 
    **Mengapa rasionya turun saat $f_y$ naik.** Yang perlu dijaga adalah **gaya** tarik yang mampu ditahan tulangan, bukan luasnya. Baja bermutu lebih tinggi memberi gaya yang sama dengan luas lebih kecil, sehingga rasionya diskalakan dengan $420/f_y$. Batas bawah $0{,}0014$ mencegah rasio jatuh terlalu jauh pada baja bermutu sangat tinggi.
 
+   **Ini jumlah TOTAL satu arah, bukan jatah satu muka.** Nilai di atas berlaku untuk penampang menembus seluruh tebal. Pelat yang bertulangan di dua muka **membagi** jumlah itu:
+
+   $$A_{s,min}^{\text{per lapis}} = \rho_{min} \cdot b \cdot \frac{h}{2}$$
+
+   Menerapkan jumlah penuh ke setiap lapis akan memasang $4 \times \rho_{min} A_g = 0{,}0072 A_g$, padahal yang diminta hanya $2 \times \rho_{min} A_g$ untuk arah X dan Y — **dua kali lipat per arah**.
+
    **Contoh** — pelat $h = 400$ mm, $b = 1000$ mm, $f_y = 420$ MPa:
    $$\rho_{min} = \max\left(0{,}0018 \cdot \tfrac{420}{420},\; 0{,}0014\right) = 0{,}0018$$
-   $$A_{s,min} = 0{,}0018 \times 1000 \times 400 = 720 \text{ mm}^2\text{/m}$$
-   Setara D13–150 (884 mm²/m) atau D16–250 (804 mm²/m).
+   $$A_{s,min}^{\text{penampang}} = 0{,}0018 \times 1000 \times 400 = 720 \text{ mm}^2\text{/m}$$
+   $$A_{s,min}^{\text{per lapis}} = 720 / 2 = \mathbf{360 \text{ mm}^2\text{/m}}$$
+   Setara D10–215 atau D13–370 di tiap muka, tiap arah.
 
-   > **Cara `shell-kit` memakainya:** $A_s$ akhir $= \max(A_{s,perlu},\, A_{s,min})$ — diterapkan **per lapis, per arah**, sehingga tiap lapis punya minimumnya sendiri. Titik yang sudah ditandai *SECTION INADEQUATE* **tidak** diselamatkan oleh minimum ini: penampang yang gagal tetap gagal. Nonaktifkan dengan `--no-as-min` bila ingin membandingkan dengan hasil v1.x.
+4. **Batas Zona Permukaan untuk penampang tebal** — `--as-min-surface-zone`
 
-   Kode: [`calc_as_min()`](src/shell_kit/rebar.py) dan [`apply_as_min()`](src/shell_kit/rebar.py).
+   $\rho_{min}$ ditulis untuk pelat lantai biasa (150–300 mm). Menskalakannya linear terhadap rakit atau pilecap 3 m menghasilkan tulangan yang tidak masuk akal — **5400 mm²/m per lapis**, sekitar D25–90 di keempat lapis semata-mata sebagai minimum.
+
+   Sebabnya fisis: retak susut & suhu adalah gejala **permukaan**. Inti penampang tebal tertahan oleh dirinya sendiri dan tidak berperilaku seperti pelat tipis. ACI 350-06 §7.12.2.1 membatasi tebal yang dipakai jadi 300 mm per muka untuk komponen >600 mm:
+
+   $$A_{s,min}^{\text{per lapis}} = \rho_{min} \cdot b \cdot \min\left(\frac{h}{2},\; t_{zona}\right)$$
+
+   | $h$ | Penampang | Per lapis | Dengan `--as-min-surface-zone 300` |
+   |-----|-----------|-----------|-----------------------------------|
+   | 200 mm | 360 | 180 (D10–435) | 180 — cap tidak berlaku |
+   | 400 mm | 720 | 360 (D10–215) | 360 — cap tidak berlaku |
+   | 1000 mm | 1800 | 900 (D10–85) | **540** (D10–145) |
+   | 3000 mm | 5400 | 2700 (D19–105) | **540** (D10–145) |
+
+   > **SNI 2847:2019 tidak memuat batas ini.** Opsi ini meminjam ACI 350-06 dan praktik umum rakit/pilecap, jadi sengaja dibuat **opt-in** — tidak aktif otomatis — dan selalu dicatat pada tabel Parameter Desain di laporan bila dipakai. Keputusan memakainya ada pada Anda.
+
+   > **Cara `shell-kit` memakainya:** $A_s$ akhir $= \max(A_{s,perlu},\, A_{s,min}^{\text{per lapis}})$, per lapis per arah. Muka yang tidak bermomen sama sekali **tetap** dibuatkan lapisnya berisi $A_{s,min}$ saja — susut & suhu tetap menuntut tulangan di situ. Titik yang sudah ditandai *SECTION INADEQUATE* **tidak** diselamatkan oleh minimum ini. Nonaktifkan seluruhnya dengan `--no-as-min`.
+
+   Kode: [`calc_as_min()`](src/shell_kit/rebar.py) (total penampang), [`calc_as_min_per_face()`](src/shell_kit/rebar.py) (jatah per lapis), [`apply_as_min()`](src/shell_kit/rebar.py).
 
 4. **Batas Daktilitas** — SNI Tabel 21.2.2
    $$\rho_{max} = 0.85 \cdot \beta_1 \cdot \frac{f'_c}{f_y} \cdot \frac{\varepsilon_{cu}}{\varepsilon_{cu} + \varepsilon_{ty} + 0.003}, \qquad \varepsilon_{ty} = \frac{f_y}{E_s}$$
@@ -557,6 +594,8 @@ typst compile --root . LAPORAN_LENGKAP.typ
 | `[WARN] ... elemen dilewati` | Ada elemen di `connectivity_data.csv` yang node-nya tidak ada di `kordinat_node.csv`. Elemen tersebut dibuang dari mesh |
 | `[WARN] Nama load case tidak cocok persis` | Program menyesuaikan nama secara otomatis. Periksa hasil penyesuaian yang dicetak — bila ditandai `AMBIGUOUS`, samakan penamaan di CSV kombinasi |
 | Banyak zona **SECTION INADEQUATE** setelah upgrade ke 2.0.0 | Ini hasil pemeriksaan code yang baru, bukan bug. Bandingkan dengan `--no-as-min`, lalu tinjau tebal pelat / mutu beton / batasan diameter (`--rebar-select`) |
+| Tulangan minimum terasa berlebih pada pelat tebal | Wajar: $\rho_{min} \cdot h$ ditulis untuk pelat 150–300 mm. Pakai `--as-min-surface-zone 300` (lihat catatan 3.2.0) |
+| Hasil $A_{s,min}$ separuh dari versi sebelumnya | Itu koreksi di 3.2.0 — jumlah kode dibagi antara dua muka. Yang sebelumnya 2× lipat per arah |
 | `[FAILED] N plot gagal dibuat` | Program kini keluar dengan kode 1 bila ada plot gagal. Baca pesan error yang tercetak di atasnya |
 
 ---
@@ -585,4 +624,4 @@ uv run pytest
 ---
 
 **License:** MIT  
-**Version:** 3.1.0
+**Version:** 3.2.0

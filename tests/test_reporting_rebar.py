@@ -17,7 +17,8 @@ def _params(**over):
     p = {
         'h_mm': 400.0, 'cover': 40.0, 'fc': 30.0, 'fy': 420.0,
         'method': 'average-nodal', 'mode_desc': 'Mode B: s=150mm',
-        'apply_min': True, 'as_min': 720.0, 'rho_max': 0.018793,
+        'apply_min': True, 'as_min': 720.0, 'as_min_face': 360.0,
+        'surface_zone': None, 'rho_max': 0.018793,
         'beta1': 0.835714, 'generated': '2026-01-01 00:00:00',
     }
     p.update(over)
@@ -143,7 +144,8 @@ def test_markdown_report_contains_every_required_section():
     for heading in ('Parameter Desain', 'Ringkasan per Lapis',
                     'Zona SECTION INADEQUATE'):
         assert heading in doc
-    assert 'As minimum (SNI 24.4.3.2) | 720' in doc
+    assert 'As minimum penampang (SNI 24.4.3.2) | 720' in doc
+    assert 'As minimum **per lapis** | 360' in doc
     assert '0.01879' in doc            # rho_max
     assert 'Tulangan Bawah (Arah X)' in doc
 

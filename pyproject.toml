@@ -1,6 +1,6 @@
 [project]
 name = "shell-kit"
-version = "3.1.0"
+version = "3.2.0"
 description = "shell-kit — Post-processing pelat/shell Midas Civil: kontur gaya dalam, desain tulangan SNI, dan laporan"
 readme = "README.md"
 requires-python = ">=3.10"

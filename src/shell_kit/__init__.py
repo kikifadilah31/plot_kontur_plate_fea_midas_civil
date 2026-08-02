@@ -9,4 +9,4 @@ Keduanya menerima --report untuk menghasilkan dokumen ringkasan lengkap
 dengan diagram tersemat (Markdown, Typst, atau PDF).
 """
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"

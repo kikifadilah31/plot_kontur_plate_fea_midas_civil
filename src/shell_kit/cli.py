@@ -96,6 +96,13 @@ def _add_rebar_args(p):
     g.add_argument('--no-as-min', action='store_true',
                    help='Nonaktifkan tulangan minimum SNI 24.4.3.2 (hanya untuk '
                         'membandingkan dengan hasil v1.x)')
+    g.add_argument('--as-min-surface-zone', type=float, default=None,
+                   metavar='MM',
+                   help='Batasi tebal per muka yang dipakai menghitung tulangan '
+                        'minimum, mis. 300. Untuk penampang tebal (rakit, '
+                        'pilecap) rho x h penuh menghasilkan tulangan berlebih. '
+                        'Meminjam ACI 350-06 7.12.2.1 — di luar huruf SNI 2847, '
+                        'dan dicatat di laporan bila dipakai.')
 
     s = p.add_argument_group('geser')
     s.add_argument('--shear', action='store_true',

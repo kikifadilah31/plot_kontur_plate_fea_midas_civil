@@ -32,6 +32,10 @@ SHEAR_DIAMETERS = np.array([10, 13, 16, 19, 22, 25], dtype=float)  # mm (stirrup
 SEED_DIAMETER = 16.0   # mm
 MAX_DEPTH_ITERATIONS = 5
 
+# Slabs are reinforced at both faces, so the code's section-total minimum is
+# shared between them rather than applied in full to each layer.
+DEFAULT_AS_MIN_FACES = 2
+
 
 # =============================================================================
 # Code Checks (SNI 2847:2019)
@@ -60,15 +64,34 @@ def calc_beta1(fc):
     return 0.85 - 0.05 * (fc - 28.0) / 7.0
 
 
+def calc_rho_min(fy):
+    """
+    Minimum reinforcement ratio for slabs (SNI 24.4.3.2 / Tabel 7.6.1.1).
+
+      fy <  420 MPa -> 0.0020
+      fy >= 420 MPa -> max(0.0018 * 420 / fy, 0.0014)
+
+    The ratio scales with 420/fy because what must be maintained is the
+    tensile FORCE the steel can carry, not its area — higher grade steel
+    delivers the same force with less section.
+    """
+    if fy < 420.0:
+        return 0.0020
+    return max(0.0018 * 420.0 / fy, 0.0014)
+
+
 def calc_as_min(fy, h_mm, b=STRIP_WIDTH_MM):
     """
     Minimum slab reinforcement for shrinkage and temperature (SNI 24.4.3.2).
 
-    This is the minimum that governs slabs — it is applied to the GROSS
-    section (b x h), not to the effective depth.
+    This is the quantity the code states: the TOTAL for one direction through
+    the full thickness, referred to the GROSS section (b x h) rather than to
+    the effective depth — shrinkage and temperature act on the whole section,
+    not just the compression block.
 
-      fy <  420 MPa -> rho = 0.0020
-      fy >= 420 MPa -> rho = max(0.0018 * 420 / fy, 0.0014)
+    It is NOT the amount for a single face. A slab reinforced top and bottom
+    distributes this total between the two; use calc_as_min_per_face() for
+    what one layer must carry.
 
     Parameters
     ----------
@@ -78,13 +101,47 @@ def calc_as_min(fy, h_mm, b=STRIP_WIDTH_MM):
 
     Returns
     -------
-    float : As_min in mm2/m.
+    float : As_min in mm2/m, total for one direction.
     """
-    if fy < 420.0:
-        rho_min = 0.0020
-    else:
-        rho_min = max(0.0018 * 420.0 / fy, 0.0014)
-    return rho_min * b * h_mm
+    return calc_rho_min(fy) * b * h_mm
+
+
+def calc_as_min_per_face(fy, h_mm, b=STRIP_WIDTH_MM, n_faces=DEFAULT_AS_MIN_FACES,
+                         surface_zone=None):
+    """
+    Share of the code minimum carried by ONE face of the slab.
+
+    Two corrections to a naive reading of the clause:
+
+    1. The code amount is a section total, so it is divided between the faces
+       that are actually reinforced. Applying the full amount to every layer
+       placed twice the required steel in each direction.
+
+    2. `surface_zone` caps the thickness each face is computed on. Shrinkage
+       and temperature cracking is a SURFACE phenomenon — the core of a thick
+       raft restrains itself and does not behave like a thin slab, so scaling
+       0.0018 linearly with a 3 m thickness is not what the clause intends.
+       ACI 350-06 §7.12.2.1 caps this at 300 mm per face for members thicker
+       than 600 mm. SNI 2847:2019 states no such cap, so this is engineering
+       judgement borrowed from ACI 350 and normal mat practice — it is opt-in
+       and recorded in the report whenever it is used.
+
+    Parameters
+    ----------
+    fy : float — steel yield strength in MPa.
+    h_mm : float — slab thickness in mm.
+    b : float — strip width in mm (default 1000).
+    n_faces : int — number of reinforced faces sharing the total (default 2).
+    surface_zone : float, optional — cap in mm on the thickness per face.
+
+    Returns
+    -------
+    float : As_min in mm2/m for one layer.
+    """
+    t_eff = h_mm / max(n_faces, 1)
+    if surface_zone:
+        t_eff = min(t_eff, surface_zone)
+    return calc_rho_min(fy) * b * t_eff
 
 
 def calc_rho_max(fc, fy):
@@ -347,9 +404,13 @@ def calc_as_required(Mu_knm, fc, fy, d, phi=PHI_FLEXURE, check_ductility=True):
     return As
 
 
-def apply_as_min(As, fy, h_mm, b=STRIP_WIDTH_MM):
+def apply_as_min(As, fy, h_mm, b=STRIP_WIDTH_MM, surface_zone=None,
+                 n_faces=DEFAULT_AS_MIN_FACES):
     """
-    Raise As to the code minimum for slabs, preserving inadequate markers.
+    Raise one layer's As to its share of the code minimum.
+
+    The share, not the whole: the clause states a total for the direction
+    through the full thickness, and this slab is reinforced at both faces.
 
     Nodes already flagged np.nan stay np.nan — a section that fails is not
     rescued by adding minimum steel.
@@ -360,13 +421,15 @@ def apply_as_min(As, fy, h_mm, b=STRIP_WIDTH_MM):
     fy : float — steel yield strength in MPa.
     h_mm : float — slab thickness in mm.
     b : float — strip width in mm.
+    surface_zone : float, optional — cap in mm on the thickness per face.
+    n_faces : int — reinforced faces sharing the total.
 
     Returns
     -------
-    numpy array : As in mm²/m, at least As_min wherever As is finite.
+    numpy array : As in mm²/m, at least the per-face minimum where As is finite.
     """
     As = np.asarray(As, dtype=float)
-    as_min = calc_as_min(fy, h_mm, b)
+    as_min = calc_as_min_per_face(fy, h_mm, b, n_faces, surface_zone)
     out = np.where(np.isnan(As), np.nan, np.maximum(As, as_min))
     return out
 
@@ -510,7 +573,8 @@ def check_spacing_limits(s, h_mm, D):
 
 def solve_rebar_iterative(Mu_knm, fc, fy, h_mm, cover, direction, layer,
                           spacing, config_codes=None, apply_min=True,
-                          phi=PHI_FLEXURE, max_iter=MAX_DEPTH_ITERATIONS):
+                          phi=PHI_FLEXURE, max_iter=MAX_DEPTH_ITERATIONS,
+                          surface_zone=None):
     """
     Mode B: given a target spacing, solve As and the bar selection together.
 
@@ -576,7 +640,7 @@ def solve_rebar_iterative(Mu_knm, fc, fy, h_mm, cover, direction, layer,
         d_eff = calc_effective_depth(h_mm, cover, D_depth, direction, layer)
         As = calc_as_required(Mu, fc, fy, d_eff, phi)
         if apply_min:
-            As = apply_as_min(As, fy, h_mm)
+            As = apply_as_min(As, fy, h_mm, surface_zone=surface_zone)
 
         D_new = np.full(Mu.shape, SEED_DIAMETER, dtype=float)
         if sorted_codes is not None:

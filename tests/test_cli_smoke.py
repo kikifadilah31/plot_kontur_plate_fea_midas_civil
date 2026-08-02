@@ -208,10 +208,59 @@ def test_rebar_report_markdown_has_content_and_figures(tmp_path, data_available)
     assert 'Parameter Desain' in doc
     assert 'Ringkasan per Lapis' in doc
     assert 'SECTION INADEQUATE' in doc
-    assert 'As minimum (SNI 24.4.3.2)' in doc
     assert 'ρ maksimum' in doc
 
+    # Both As,min figures must be stated: the clause quantity for the whole
+    # section, and the share one layer actually carries. Showing only one
+    # invited the very confusion that produced twice the required steel.
+    assert 'As minimum penampang (SNI 24.4.3.2)' in doc
+    assert 'As minimum **per lapis**' in doc
+
     _figures_resolve(reports[0], r'!\[[^\]]*\]\(([^)]+)\)')
+
+
+def test_report_states_the_per_layer_share_is_half_the_section(tmp_path, data_available):
+    """h = 400 mm, fy = 420 -> 720 mm²/m for the section, 360 per layer."""
+    r = _run('rebar', [*_inputs(), '--thickness', '0.4', '--spacing', '150',
+                       '--no-mesh', '--report'], tmp_path)
+    _assert_clean(r)
+
+    docs = list(tmp_path.rglob('Laporan_Tulangan_*.md'))
+    assert docs
+    doc = docs[0].read_text(encoding='utf-8')
+    assert '| As minimum penampang (SNI 24.4.3.2) | 720 mm²/m |' in doc
+    assert '| As minimum **per lapis** | 360 mm²/m |' in doc
+
+
+def test_surface_zone_is_recorded_when_used(tmp_path, data_available):
+    """
+    The cap departs from the letter of SNI 2847, so a reader of the report
+    must be able to see that it was applied.
+    """
+    r = _run('rebar', [*_inputs(), '--thickness', '3.0', '--spacing', '150',
+                       '--no-mesh', '--report', '--as-min-surface-zone', '300'],
+             tmp_path)
+    _assert_clean(r)
+    assert 'Zona permukaan dibatasi 300 mm' in r.stdout
+
+    docs = list(tmp_path.rglob('Laporan_Tulangan_*.md'))
+    doc = docs[0].read_text(encoding='utf-8')
+    assert 'Batas zona permukaan' in doc
+    assert 'ACI 350' in doc
+    # 3 m raft: 5400 for the section, capped to 540 per layer
+    assert '| As minimum penampang (SNI 24.4.3.2) | 5400 mm²/m |' in doc
+    assert '| As minimum **per lapis** | 540 mm²/m |' in doc
+
+
+def test_surface_zone_absent_from_report_when_not_used(tmp_path, data_available):
+    r = _run('rebar', [*_inputs(), '--thickness', '3.0', '--spacing', '150',
+                       '--no-mesh', '--report'], tmp_path)
+    _assert_clean(r)
+
+    docs = list(tmp_path.rglob('Laporan_Tulangan_*.md'))
+    doc = docs[0].read_text(encoding='utf-8')
+    assert 'Batas zona permukaan' not in doc
+    assert '| As minimum **per lapis** | 2700 mm²/m |' in doc
 
 
 def test_rebar_report_typst(tmp_path, data_available):
