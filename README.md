@@ -1,13 +1,80 @@
-# FEA 2D Contour Plot Generator
-**Version 2.0.0 | Professional FEA Visualization & Reporting**
+# shell-kit
+**Versi 3.1.0 | Post-processing pelat/shell Midas Civil**
 
-High-performance Python tool for generating FEA contour plots and comprehensive technical reports from Midas Civil (or similar) plate/shell results.
+Alat baris perintah untuk mengolah hasil elemen pelat/shell dari Midas Civil (atau solver sejenis): kontur gaya dalam, desain tulangan menurut SNI 2847:2019, dan laporan teknis **PDF** lengkap dengan diagram.
+
+```bash
+shell-kit plot  --method all --no-mesh
+shell-kit rebar --fc 30 --fy 420 --spacing 150 --report --format pdf
+```
 
 ---
 
-## ⚠️ Catatan Upgrade ke 2.0.0
+## 🆕 Baru di 3.1.0 — Laporan PDF
 
-Versi ini menambahkan pemeriksaan code SNI 2847:2019 yang sebelumnya tidak ada. **Hasil hitungan tulangan akan berbeda dari v1.x** pada model yang sama:
+`--format pdf` menghasilkan PDF siap lampir, dikompilasi **langsung di dalam Python**. Tidak perlu meng-install Typst, LaTeX, atau tool lain — kompilatornya ikut terbawa paket.
+
+```bash
+shell-kit rebar --spacing 150 --shear --report --format pdf
+```
+
+Yang dihasilkan:
+
+| Berkas | Isi |
+|--------|-----|
+| `Laporan_Tulangan_<sumber>.pdf` | Laporan per load case/kombinasi — sekitar 5–6 MB, 14 halaman |
+| `LAPORAN_LENGKAP.pdf` | **Satu dokumen untuk seluruh run** — halaman judul, daftar isi, dan setiap sumber sebagai bab terpisah |
+| `*.typ` | Sumber Typst tetap disimpan, bisa disunting lalu di-compile ulang |
+| `_figur_pdf/` | Salinan gambar yang diperkecil untuk cetak (lihat di bawah) |
+
+**Soal ukuran berkas.** Plot disimpan pada resolusi tinggi (~620 DPI pada lebar A4). Menyematkannya apa adanya menghasilkan PDF 16 MB per laporan dan 178 MB untuk dokumen gabungan — terlalu besar untuk dikirim. Karena itu gambar diperkecil ke 1600 px (~240 DPI, tetap tajam untuk cetak) khusus untuk PDF. **File PNG asli tidak diubah sama sekali** dan tetap tersedia pada resolusi penuh.
+
+> `--format typst` tidak melakukan penyusutan — bila Anda mengompilasi sendiri dan menginginkan resolusi penuh, gunakan format itu.
+
+Bila kompilasi gagal, diagnostik Typst dicetak apa adanya, berkas `.typ` dipertahankan untuk ditelusuri, dan program keluar dengan kode 1.
+
+---
+
+## ⚠️ Catatan Upgrade ke 3.0.0
+
+**Nama dan struktur perintah berubah total.** Tiga perintah lama digabung menjadi satu:
+
+| Dulu | Sekarang |
+|------|----------|
+| `fea-plot [OPSI]` | `shell-kit plot [OPSI]` |
+| `fea-rebar [OPSI]` | `shell-kit rebar [OPSI]` |
+| `fea-report [OPSI]` | opsi `--report` pada `plot` maupun `rebar` |
+
+Perintah lama **dihapus sepenuhnya** — tidak ada alias. Nama paket juga berubah dari `fea-contour-plotter` menjadi `shell-kit`, sehingga instalasi lama perlu diganti:
+
+```bash
+uv tool uninstall fea-contour-plotter
+uv tool install git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil
+```
+
+**Mengapa berubah:** "fea" menyesatkan — alat ini bukan solver FEA melainkan post-processor untuk desain pelat beton bertulang. Nama `shell-kit` merujuk elemen *shell* yang diolahnya. Menyatukan tiga perintah juga menghapus inkonsistensi lama: `--comb-select` dulu hanya ada di dua perintah, `--no-annotation` hanya di satu. Sekarang seluruh opsi bersama didefinisikan sekali dan berlaku di mana-mana.
+
+### Laporan kini menjadi opsi, bukan perintah
+
+Tambahkan `--report` pada perintah apa pun. Dokumen ditulis berdampingan dengan plot yang bersangkutan, **dengan diagramnya tersemat langsung** sebagai figure:
+
+```bash
+shell-kit plot  --report                    # ringkasan gaya/tegangan + kontur
+shell-kit rebar --report --format typst     # laporan tulangan siap compile
+```
+
+| Perintah | Dokumen yang dihasilkan | Isi |
+|----------|------------------------|-----|
+| `plot --report` | `Summary_<sumber>.md` + `MASTER_SUMMARY.md` | Properti penampang, envelope gaya/momen/tegangan beserta lokasinya, seluruh plot kontur tersemat |
+| `rebar --report` | `Laporan_Tulangan_<sumber>.md` | Parameter desain & batas code yang dipakai, As perlu dan tulangan terpilih per lapis, **daftar koordinat titik SECTION INADEQUATE**, seluruh plot tulangan tersemat |
+
+> Diagram ditautkan secara relatif terhadap lokasi dokumen, jadi seluruh folder output bisa dipindah atau di-zip tanpa merusak gambar. Plot yang gagal dirender tidak akan ditautkan — laporan tidak pernah menunjuk gambar rusak.
+
+---
+
+## ⚠️ Catatan Upgrade ke 2.0.0 (pemeriksaan code SNI)
+
+Versi 2.0.0 menambahkan pemeriksaan SNI 2847:2019 yang sebelumnya tidak ada. **Hasil hitungan tulangan berbeda dari v1.x** pada model yang sama:
 
 | Perubahan | Dampak |
 |-----------|--------|
@@ -18,13 +85,14 @@ Versi ini menambahkan pemeriksaan code SNI 2847:2019 yang sebelumnya tidak ada. 
 | Tinggi efektif Mode B iteratif | $A_s$ naik di zona bertulangan besar (dulu *underestimate* karena asumsi D16 tetap) |
 | $V_c$ disatukan ke bentuk SNI $0{,}17\lambda\sqrt{f'_c}b_w d$ | Selisih <2,5% dari rumus AASHTO yang dipakai v1.x |
 
-> **Membandingkan dengan hasil lama:** jalankan `fea-rebar --no-as-min` untuk menonaktifkan tulangan minimum, sehingga selisihnya bisa Anda telusuri satu per satu sebelum dipakai untuk desain.
+> **Membandingkan dengan hasil lama:** jalankan `shell-kit rebar --no-as-min` untuk menonaktifkan tulangan minimum, sehingga selisihnya bisa Anda telusuri satu per satu sebelum dipakai untuk desain.
 
 **Perbaikan bug yang menyertai:**
 
-- `fea-rebar --method all` tidak lagi crash (envelope antar-metode punya panjang array berbeda)
-- **`--method element-center` kini benar-benar menghasilkan plot** — sebelumnya 100% gagal di `fea-plot` maupun `fea-rebar`
+- `rebar --method all` tidak lagi crash (envelope antar-metode punya panjang array berbeda)
+- **`--method element-center` kini benar-benar menghasilkan plot** — sebelumnya 100% gagal di kedua perintah
 - Zona *inadequate* pada `element-center` kini berwarna abu-abu; dulu putih, tidak bisa dibedakan dari "tidak butuh tulangan"
+- **Envelope kini mewarisi kegagalan**: dulu memakai `np.fmax` yang membuang NaN, sehingga satu titik hanya ditandai gagal bila *seluruh* load case gagal di situ
 - `--rebar-select` dengan daftar panjang tidak lagi menggagalkan seluruh plot konfigurasi
 - Resolusi nama load case kini deterministik dan memberi peringatan bila ambigu
 - Elemen dengan node hilang tidak lagi mencemari hasil (dulu membaca memori tak terinisialisasi)
@@ -39,48 +107,45 @@ Versi ini menambahkan pemeriksaan code SNI 2847:2019 yang sebelumnya tidak ada. 
 Hanya butuh [uv](https://docs.astral.sh/uv/) terinstall di komputer.
 
 ```bash
-# Install permanen ke PATH
 uv tool install git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil
+```
 
-# Jika di masa depan ada update di GitHub, perbarui dengan:
-uv tool upgrade fea-contour-plotter
+Perbarui bila ada update di GitHub:
 
-# Lalu jalankan kapan saja dari terminal (pastikan berada di folder yang berisi folder input/)
-fea-plot --method average-nodal --no-mesh
-fea-report --master --comb input/kombinasi_beban.csv
-fea-rebar --fc 30 --fy 420
+```bash
+uv tool upgrade shell-kit
+```
+
+Lalu jalankan dari terminal (pastikan berada di folder yang berisi folder `input/`):
+
+```bash
+shell-kit rebar --fc 30 --fy 420 --spacing 150 --report
 ```
 
 Atau jalankan sekali tanpa install:
-```bash
-# Plot
-uvx --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil fea-plot \
-  --method all --no-mesh --comb input/kombinasi_beban.csv
 
-# Report
-uvx --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil fea-report \
-  --master --comb input/kombinasi_beban.csv --thickness 0.5
+```bash
+uvx --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil shell-kit plot --method all --no-mesh
 ```
 
-> **💡 TIPS (Untuk PC Tanpa Git):**
-> Jika komputer Anda (atau rekan Anda) tidak memiliki `git` yang ter-install, ganti sumber ke file `.zip` agar tetap bisa dijalankan:
+> **💡 TIPS (untuk PC tanpa Git):**
+> Ganti sumber ke file `.zip` agar tetap bisa dijalankan:
 > ```bash
-> uvx --from https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/heads/main.zip fea-plot --help
+> uvx --from https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/heads/main.zip shell-kit --help
 > ```
 
 ### Cara 2: Clone dan jalankan lokal
 
 ```bash
 git clone https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil.git
-cd plot_kontur_plate_fea_midas_civil
+```
 
-# Jalankan via uv (otomatis install dependencies)
-uv run fea-plot --method average-nodal --no-mesh
-uv run fea-report --master --comb input/kombinasi_beban.csv
+```bash
+uv run shell-kit plot --method average-nodal --no-mesh
+```
 
-# Atau cara tradisional
-uv run python plot_contur_fea.py --method all --no-mesh
-uv run python generate_reports.py --master --comb input/kombinasi_beban.csv
+```bash
+uv run shell-kit rebar --comb input/kombinasi_beban.csv --report
 ```
 
 ---
@@ -108,127 +173,135 @@ Siapkan file CSV di folder `input/` pada working directory (atau copy dari salah
 | `gaya_elemen_per_load_case.csv` | Gaya/momen per elemen | Elem, Load, Node, Forces... |
 | `kombinasi_beban.csv` | Definisi kombinasi beban | Name, Active, Case 1, Factor 1, ... |
 
-> **💡 Note:** Folder `example_data_input/` disertakan dalam repository ini agar Anda dapat langsung melakukan test drive. Cukup copy CSV dari subfolder yang ada (misal `example_1`) lalu upload di UI atau letakkan di `input/` untuk penggunaan CLI.
+> **💡 Note:** Folder `example_data_input/` disertakan dalam repository ini agar Anda dapat langsung melakukan test drive. Cukup copy CSV dari subfolder yang ada (misal `example_1`) ke folder `input/`.
 
 ---
 
 ## 🛠️ Commands Reference
 
-### `fea-plot` — Generate Contour Plots
-
 ```bash
-fea-plot [OPTIONS]
+shell-kit <perintah> [OPSI]
 ```
 
-| Argument | Deskripsi | Default |
-|----------|-----------|---------|
-| `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
-| `--theme` | Tema visual plot (`light` atau `dark`) | `light` |
-| `--comb` | Path ke file CSV kombinasi beban | *(none)* |
-| `--no-mesh` | Sembunyikan wireframe mesh | `False` |
-| `--thickness` | Tebal pelat dalam meter | `0.400` |
-| `--kordinat` | Path ke CSV koordinat | *(auto-detect)* |
+| Perintah | Fungsi |
+|----------|--------|
+| `plot` | Kontur gaya dalam, momen, dan tegangan serat atas/bawah |
+| `rebar` | Kebutuhan tulangan lentur & geser menurut SNI 2847:2019 |
+
+### Opsi bersama (berlaku di kedua perintah)
+
+**Input & output**
+
+| Argumen | Deskripsi | Default |
+|---------|-----------|---------|
+| `--kordinat` | Path ke CSV koordinat | *(auto-detect di `input/`)* |
 | `--connectivity` | Path ke CSV konektivitas | *(auto-detect)* |
 | `--gaya` | Path ke CSV gaya/momen | *(auto-detect)* |
+| `--thickness` | Tebal pelat dalam meter | `0.400` |
 | `--output` | Folder output | `output` |
 
-**Contoh:**
+**Metode & kombinasi**
+
+| Argumen | Deskripsi | Default |
+|---------|-----------|---------|
+| `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
+| `--comb` | Path ke CSV kombinasi beban | *(none)* |
+| `--comb-select` | Filter nama kombinasi dengan wildcard (cth: `K_1*`) | `*` |
+
+**Tampilan**
+
+| Argumen | Deskripsi | Default |
+|---------|-----------|---------|
+| `--theme` | Tema visual (`light` atau `dark`) | `light` |
+| `--no-mesh` | Sembunyikan wireframe mesh | `False` |
+| `--no-annotation` | Sembunyikan marker MAX/MIN dan badge SECTION INADEQUATE | `False` |
+
+**Laporan**
+
+| Argumen | Deskripsi | Default |
+|---------|-----------|---------|
+| `--report` | Hasilkan dokumen ringkasan dengan diagram tersemat | `False` |
+| `--format` | Format laporan: `md`, `typst`, atau `pdf` | `md` |
+
+---
+
+### `shell-kit plot`
+
+Menghasilkan contour plot gaya dalam, momen, dan tegangan serat atas/bawah.
+
 ```bash
 # Semua metode + kombinasi + tanpa mesh
-fea-plot --method all --comb input/kombinasi_beban.csv --no-mesh
-
-# Satu metode dengan tebal custom
-fea-plot --method element-nodal --thickness 0.5
-
-# Input file manual
-fea-plot --kordinat data/nodes.csv --connectivity data/conn.csv --gaya data/forces.csv
+shell-kit plot --method all --comb input/kombinasi_beban.csv --no-mesh
 ```
-
-### `fea-report` — Generate Reports
 
 ```bash
-fea-report [OPTIONS]
+# Satu metode dengan tebal custom, sekalian laporannya
+shell-kit plot --method element-nodal --thickness 0.5 --report
 ```
-
-| Argument | Deskripsi | Default |
-|----------|-----------|---------|
-| `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
-| `--format` | Format output (`md` atau `typst`) | `md` |
-| `--comb` | Path ke CSV kombinasi beban | *(none)* |
-| `--comb-select` | Wildcard filter untuk kombinasi (cth: `K_1*`) | `*` |
-| `--master` | Generate Master Summary | `False` |
-| `--thickness` | Tebal pelat dalam meter | `0.400` |
-| `--kordinat` | Path ke CSV koordinat | *(auto-detect)* |
-| `--connectivity` | Path ke CSV konektivitas | *(auto-detect)* |
-| `--gaya` | Path ke CSV gaya/momen | *(auto-detect)* |
-| `--output` | Folder output | `output` |
-
-**Contoh:**
-```bash
-# Markdown (default) — konsisten dengan interpolasi mesh
-fea-report --master --comb input/kombinasi_beban.csv
-
-# Typst output — siap di-compile
-fea-report --master --comb input/kombinasi_beban.csv --format typst
-
-# Filter kombinasi & method tertentu
-fea-report --method element-center --comb input/kombinasi_beban.csv --comb-select "K_1*" --format typst
-```
-
-### `fea-rebar` — Generate Rebar Analysis Plots
-
-Menghitung kebutuhan luas tulangan utama pelat (lentur) berdasarkan momen hasil FEM, lalu menghasilkan *contour plot* untuk *Spasi Tulangan* atau *Diameter Tulangan*. Sangat berguna untuk melakukan zonasi pembesian.
 
 ```bash
-fea-rebar [OPTIONS]
+# Laporan Typst untuk kombinasi tertentu saja
+shell-kit plot --comb input/kombinasi_beban.csv --comb-select "K_1*" --report --format typst
 ```
 
-| Argument | Deskripsi | Default |
-|----------|-----------|---------|
-| `--fc` | Kuat tekan beton (MPa) | `30` |
-| `--fy` | Kuat leleh baja (MPa) | `420` |
-| `--thickness` | Tebal pelat dalam meter | `0.400` |
+---
+
+### `shell-kit rebar`
+
+Menghitung kebutuhan tulangan pelat dari momen dan geser hasil FEM, lalu memetakannya sebagai contour plot untuk keperluan zonasi pembesian.
+
+**Opsi khusus — material & tulangan**
+
+| Argumen | Deskripsi | Default |
+|---------|-----------|---------|
+| `--fc` | Kuat tekan beton f'c (MPa) | `30` |
+| `--fy` | Kuat leleh baja fy (MPa) | `420` |
 | `--cover` | Selimut beton bersih (mm) | `40` |
-| `--diameter` | Kode/Diameter tulangan (misal: `16`, `2D25`). Jika diset, output = plot **Spasi** | *(none)* |
-| `--spacing` | Spasi tulangan (mm). Jika diset, output = plot **Diameter/Konfigurasi** | `150` |
-| `--rebar-select`| Pilih daftar konfigurasi tulangan untuk Mode B (misal: `16 22 2D25 2D32`) | *(default: D13-D32)* |
-| `--shear` | Mengaktifkan perhitungan **tulangan geser** (Av/s dan diameter dari Vxx/Vyy) | `False` |
-| `--shear-spacing-long` | Spasi sengkang arah memanjang (longitudinal) dalam mm | `150` |
-| `--shear-spacing-trans` | Spasi sengkang melintang (transversal) dalam mm | `150` |
-| `--shear-select` | Pilih daftar diameter sengkang geser kustom (misal: `10 13 16 19 22 25 32`) | *(default: D10-D25)* |
-| `--no-annotation` | Sembunyikan anotasi `MAX` marker dan *badge SECTION INADEQUATE* pada plot | `False` |
-| `--no-as-min` | Nonaktifkan tulangan minimum SNI 24.4.3.2 (hanya untuk membandingkan dengan hasil v1.x) | `False` |
-| `--method` | `average-nodal`, `element-nodal`, `element-center`, `all` | `average-nodal` |
-| `--comb` | Path ke file CSV kombinasi beban | *(none)* |
-| `--comb-select` | Wildcard filter untuk memproses kombinasi tertentu (cth: `K_1*`) | `*` |
-| `--theme` | Tema visual plot (`light` atau `dark`) | `light` |
+| `--diameter` | **Mode A** — tulangan terpasang, output = **spasi**. Contoh: `16`, `2D25` | *(none)* |
+| `--spacing` | **Mode B** — spasi terpasang (mm), output = **tulangan** | `150` |
+| `--rebar-select` | Batasi pilihan konfigurasi untuk Mode B (cth: `16 22 2D25 2D32`) | *(D13–D32)* |
+| `--no-as-min` | Nonaktifkan tulangan minimum SNI 24.4.3.2 | `False` |
+
+**Opsi khusus — geser**
+
+| Argumen | Deskripsi | Default |
+|---------|-----------|---------|
+| `--shear` | Aktifkan analisis tulangan geser (Av/s dari Vxx, Vyy) | `False` |
+| `--shear-spacing-long` | Spasi sengkang arah memanjang (mm) | `150` |
+| `--shear-spacing-trans` | Spasi sengkang melintang (mm) | `150` |
+| `--shear-select` | Batasi diameter sengkang yang tersedia (cth: `10 13 16`) | *(D10–D25)* |
 
 > **Konfigurasi Tulangan Kustom:**
-> Sistem mendukung 24 variasi tulangan (D13–4D32) termasuk *bundle* (misal: 2D25, 3D32). Gunakan argumen `--rebar-select` untuk membatasi opsi mana saja yang dimunculkan pada visualisasi kontur. Hal ini dapat menghilangkan peringatan *Section Inadequate* palsu akibat batas default D32.
+> Sistem mendukung 24 variasi tulangan (D13–4D32) termasuk *bundle* (misal 2D25, 3D32). Gunakan `--rebar-select` untuk membatasi opsi yang dimunculkan pada kontur — ini menghilangkan peringatan *Section Inadequate* palsu akibat batas default D32.
 
 > **Perilaku Superposisi:**
-> - Jika `--comb` **tidak** diatur: Program menghitung tulangan untuk setiap Load Case Tunggal (berguna untuk beban ultimate yang sudah tergabung seperti *pilecap*).
-> - Jika `--comb` diatur: Program **hanya** menghitung tulangan untuk Kombinasi Beban yang sesuai filter.
-> - Program otomatis menghasilkan folder **Envelope_Rebar** yang berisi nilai maksimal dari seluruh load case/kombinasi yang diproses.
+> - Tanpa `--comb`: tulangan dihitung untuk setiap Load Case tunggal (berguna bila beban sudah ultimate, misal pilecap).
+> - Dengan `--comb`: **hanya** kombinasi beban yang sesuai filter yang dihitung.
+> - Folder **Envelope_Rebar** otomatis dibuat, berisi nilai maksimal dari seluruh kasus yang diproses. Titik yang gagal pada kasus mana pun ikut tertandai gagal di envelope.
 
 **Contoh:**
+
 ```bash
-# Mode Output Konfigurasi: cari konfigurasi tulangan dari list pilihan jika dipasang jarak 150mm
-fea-rebar --fc 30 --fy 420 --spacing 150 --rebar-select 16 22 25 2D25 2D32 --comb input/kombinasi_beban.csv --no-mesh
-
-# Mode Output Spasi: cari jarak spasi aman jika kita menggunakan besi bundle 2D25
-fea-rebar --fc 30 --fy 420 --diameter 2D25 --comb input/kombinasi_beban.csv --no-mesh
-
-# Mode Default (Backward Compatible): cari diameter tunggal terdekat (D13 - D32 max)
-fea-rebar --fc 30 --fy 420 --spacing 150 --comb input/kombinasi_beban.csv --no-mesh
-
-# Analisis Geser (Shear) dengan pembatasan diameter sengkang spesifik (misal: hanya D10, D13, D16)
-fea-rebar --shear --shear-spacing-long 150 --shear-spacing-trans 150 --shear-select 10 13 16 --comb input/kombinasi_beban.csv --no-mesh
-
-# Menonaktifkan anotasi MAX dan badge Inadequate untuk pelaporan presentasi estetika
-fea-rebar --spacing 150 --no-annotation
+# Mode B — cari konfigurasi dari daftar pilihan bila dipasang jarak 150mm
+shell-kit rebar --fc 30 --fy 420 --spacing 150 --rebar-select 16 22 25 2D25 2D32 --comb input/kombinasi_beban.csv --no-mesh
 ```
 
+```bash
+# Mode A — cari jarak spasi aman bila memakai besi bundle 2D25
+shell-kit rebar --fc 30 --fy 420 --diameter 2D25 --comb input/kombinasi_beban.csv --no-mesh
+```
+
+```bash
+# Analisis geser dengan pembatasan diameter sengkang, plus laporan Typst
+shell-kit rebar --shear --shear-select 10 13 16 --comb input/kombinasi_beban.csv --no-mesh --report --format typst
+```
+
+```bash
+# Menonaktifkan anotasi untuk keperluan presentasi
+shell-kit rebar --spacing 150 --no-annotation
+```
+
+---
 
 ## 🎨 Contour Methods
 
@@ -244,20 +317,38 @@ fea-rebar --spacing 150 --no-annotation
 
 Setiap eksekusi membuat folder ber-timestamp:
 
+**`shell-kit plot`**
+
 ```
 output/
 └── 20260406_143000/
-    ├── Method_average-nodal/          # Jika --method all
+    ├── Method_average-nodal/              # Hanya jika --method all
     │   ├── Load_MS/
     │   │   ├── contour_Fxx_kN_per_m_.png
     │   │   ├── contour_Sig-xx_Top_kPa_Top_Fiber.png
-    │   │   └── ...
+    │   │   └── Summary_MS.md              # Jika --report
     │   ├── Combination_K_1_1/
-    │   └── ...
+    │   └── MASTER_SUMMARY.md              # Jika --report
     ├── Method_element-nodal/
-    ├── Method_element-center/
-    └── MASTER_SUMMARY.md              # Jika fea-report --master
+    └── Method_element-center/
 ```
+
+**`shell-kit rebar`**
+
+```
+output/
+└── rebar_20260406_143000/
+    ├── Load_MS/
+    │   ├── rebar_As_Mxx_Bottom_X.png
+    │   ├── rebar_diameter_s150_Mxx_Bottom_X.png
+    │   ├── rebar_Avs_Vxx_Shear_X.png              # Jika --shear
+    │   └── Laporan_Tulangan_MS.md                 # Jika --report
+    ├── Combination_K_1_1/
+    ├── Envelope_Rebar/                            # Maksimum seluruh kasus
+    └── Envelope_Shear/                            # Jika --shear
+```
+
+> Laporan ditulis di dalam folder sumbernya masing-masing, sehingga tautan gambarnya tetap valid bila folder dipindahkan.
 
 ---
 
@@ -347,7 +438,11 @@ $$ D_s = \sqrt{\frac{4 \cdot (A_v/s) \cdot s_{\text{longitudinal}} \cdot s_{\tex
 ### Package Structure
 
 ```
-src/fea_contour/
+src/shell_kit/
+├── cli.py              # Satu-satunya entry point; pemilik seluruh argumen
+├── cli_plot.py         # Alur `shell-kit plot`
+├── cli_rebar.py        # Alur `shell-kit rebar`
+│
 ├── config.py           # Semua konstanta terpusat (termasuk konstanta material SNI)
 ├── math_utils.py       # Perhitungan tegangan + helpers
 ├── combination.py      # Parsing kombinasi + resolusi nama load case bertingkat
@@ -355,16 +450,19 @@ src/fea_contour/
 ├── mesh.py             # MeshTopology class (+ valid_mask)
 ├── values.py           # ValueMapper class (Z-Array caching)
 ├── rebar.py            # Engine tulangan: lentur, geser, cek code SNI
+│
 ├── plotting.py         # Plot worker kontur gaya + figure recycling
 ├── plotting_rebar.py   # Plot worker tulangan (colormap kategorikal)
-├── reporting.py        # Report & master summary (Markdown)
-├── reporting_typst.py  # Report & master summary (Typst)
-├── cli_plot.py         # CLI: fea-plot
-├── cli_report.py       # CLI: fea-report
-└── cli_rebar.py        # CLI: fea-rebar
+│
+├── report_writer.py    # Path figure relatif + penulisan dokumen (dipakai bersama)
+├── reporting.py        # Ringkasan gaya/tegangan (Markdown)
+├── reporting_typst.py  # Ringkasan gaya/tegangan (Typst)
+└── reporting_rebar.py  # Laporan tulangan (Markdown + Typst)
 
 tests/                  # pytest — regresi bug + unit test engine perhitungan
 ```
+
+Argumen bersama didefinisikan **sekali** di `cli.py` lalu dipasang ke setiap subcommand. Struktur lama — tiap perintah punya parser sendiri — adalah penyebab `--comb-select` hanya ada di dua perintah dan `--no-annotation` hanya di satu.
 
 ### Key Optimizations
 - **Z-Array Pre-Caching**: Perhitungan berat dijalankan SEKALI per load case, bukan per plot
@@ -375,18 +473,42 @@ tests/                  # pytest — regresi bug + unit test engine perhitungan
 
 ## 📊 Reporting & Master Summary
 
-### Per-Load Case Report
-Markdown report berisi:
-- Section properties (A, I)
-- Force summary (max/min/mean per kolom)
-- Stress summary dengan contributing forces
-- Critical elements analysis
+Aktifkan dengan `--report` pada perintah mana pun. Format diatur lewat `--format md` (default) atau `--format typst`.
 
-### Enriched Master Summary
-Aggregasi global dari semua load case dan kombinasi:
-- **Global Stress Envelope**: Top 20 nilai tegangan tertinggi
-- **Force & Moment Envelopes**: Ranking per parameter
-- **Critical Element Identification**: Elemen yang paling sering muncul di extremes
+### `plot --report`
+
+**Per sumber** (`Summary_<nama>.md`):
+- Properti penampang (A, I)
+- Ringkasan gaya & momen: maks/min/rata-rata beserta lokasinya
+- Ringkasan tegangan berikut gaya dan momen penyumbangnya
+- **Seluruh plot kontur tersemat sebagai figure bernomor**
+
+**Master Summary** (`MASTER_SUMMARY.md`), agregasi seluruh load case dan kombinasi:
+- Top 20 tegangan absolut tertinggi lintas sumber
+- Envelope gaya & momen, peringkat per parameter
+- Global max/min per jenis tegangan
+
+### `rebar --report`
+
+Per sumber (`Laporan_Tulangan_<nama>.md`):
+- **Parameter desain** — h, selimut, f'c, fy, mode perhitungan, serta batas code yang benar-benar dipakai ($A_{s,min}$, $\rho_{max}$, $\beta_1$)
+- **Ringkasan per lapis** — rentang $d_{eff}$, $A_s$ maksimum dan lokasinya, tulangan terpilih di titik terkritis, jumlah titik gagal
+- **Zona SECTION INADEQUATE** — daftar koordinat titik yang gagal, beserta penjelasan penyebab dan tindakan yang relevan. Bila tidak ada yang gagal, dinyatakan eksplisit
+- **Seluruh plot tulangan tersemat sebagai figure**
+
+> Daftar titik gagal dibatasi 15 baris per lapis agar dokumen tetap terbaca; jumlah sebenarnya tetap dicantumkan dan sebaran lengkapnya terlihat pada diagram.
+
+### Dokumen gabungan & PDF
+
+`--format typst` dan `--format pdf` menghasilkan **`LAPORAN_LENGKAP`** di akar folder metode: halaman judul berisi parameter run, daftar isi otomatis, lalu setiap sumber sebagai bab terpisah. Untuk `rebar`, halaman judulnya juga mencantumkan total titik SECTION INADEQUATE seluruh run.
+
+Dengan `--format pdf`, kompilasi berjalan otomatis. Bila Anda menyunting `.typ`-nya sendiri, compile ulang dengan:
+
+```bash
+typst compile --root . LAPORAN_LENGKAP.typ
+```
+
+> `--root .` diperlukan karena laporan per-sumber menautkan gambar di folder `_figur_pdf/` yang berada di atasnya.
 
 ---
 
@@ -398,6 +520,13 @@ Aggregasi global dari semua load case dan kombinasi:
 | Plot lambat di `[1/3]` | Normal untuk `element-nodal` — Z-Array caching berjalan |
 | Kombinasi tidak ditemukan | Periksa nama load case di CSV cocok dengan output FEA |
 | `ModuleNotFoundError` | Jalankan via `uv run` atau install package dulu |
+| `fea-plot: command not found` (atau `fea-rebar`/`fea-report`) | Perintah lama dihapus di v3.0.0. Gunakan `shell-kit plot` / `shell-kit rebar`; laporan kini opsi `--report`. Lihat [Catatan Upgrade ke 3.0.0](#️-catatan-upgrade-ke-300) |
+| `--format ... diabaikan` | `--format` hanya berlaku bersama `--report`. Tambahkan `--report` |
+| Gambar tidak muncul di laporan | Path gambar relatif terhadap dokumen — pindahkan seluruh folder output, bukan file laporannya saja |
+| `gagal mengompilasi ...typ` | Diagnostik Typst tercetak di bawahnya dan file `.typ` dipertahankan. Buka file itu pada baris yang disebut |
+| `Paket 'typst' tidak ditemukan` | Instalasi Anda dibuat sebelum fitur PDF ada. Jalankan `uv tool upgrade shell-kit`, atau `uv sync` bila dari clone |
+| PDF terasa besar | Wajar: tiap laporan memuat 12+ diagram kontur. Gambar sudah diperkecil ke ~240 DPI. Untuk berbagi cepat, kirim PDF per sumber, bukan `LAPORAN_LENGKAP.pdf` |
+| Ingin resolusi gambar penuh di dokumen | Pakai `--format typst` lalu compile sendiri — format itu tidak memperkecil gambar |
 | `[WARN] ... elemen dilewati` | Ada elemen di `connectivity_data.csv` yang node-nya tidak ada di `kordinat_node.csv`. Elemen tersebut dibuang dari mesh |
 | `[WARN] Nama load case tidak cocok persis` | Program menyesuaikan nama secara otomatis. Periksa hasil penyesuaian yang dicetak — bila ditandai `AMBIGUOUS`, samakan penamaan di CSV kombinasi |
 | Banyak zona **SECTION INADEQUATE** setelah upgrade ke 2.0.0 | Ini hasil pemeriksaan code yang baru, bukan bug. Bandingkan dengan `--no-as-min`, lalu tinjau tebal pelat / mutu beton / batasan diameter (`--rebar-select`) |
@@ -429,4 +558,4 @@ uv run pytest
 ---
 
 **License:** MIT  
-**Version:** 2.0.0
+**Version:** 3.1.0

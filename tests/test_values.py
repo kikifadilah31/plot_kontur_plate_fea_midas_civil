@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fea_contour.mesh import MeshTopology
-from fea_contour.values import ValueMapper
+from shell_kit.mesh import MeshTopology
+from shell_kit.values import ValueMapper
 
 COL = 'Mxx (kN·m/m)'
 

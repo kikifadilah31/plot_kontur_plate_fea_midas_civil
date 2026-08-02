@@ -1,22 +1,18 @@
 """
-CLI entry point for FEA Rebar Analysis & Contour Plot Generator.
-Calculates required reinforcement from FEM moments and plots contour maps.
+`shell-kit rebar` — reinforcement demand from FEM moments and shears.
+
+Driven by shell_kit.cli, which owns the argument parser.
 """
 
 import os
 import sys
-import argparse
 import fnmatch
 import numpy as np
 from datetime import datetime
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
 
-from . import __version__
-
-from .config import (
-    DEFAULT_THICKNESS, ALL_METHODS, OUTPUT_FOLDER,
-)
+from .config import ALL_METHODS
 from .math_utils import safe_filename
 from .combination import (
     parse_combination_file, validate_combinations, format_resolution_warnings,
@@ -37,6 +33,15 @@ from .rebar import (
     solve_rebar_iterative, format_depth_range,
 )
 from .plotting_rebar import init_rebar_worker, generate_rebar_plot_worker
+from .reporting_rebar import (
+    summarize_case, build_params,
+    render_rebar_report_md, render_rebar_report_typst,
+)
+from .report_writer import (
+    prepare_figures, write_document, compile_pdfs, print_figure_dir,
+    uses_typst, document_ext, COMBINED_STEM,
+)
+from .reporting_typst import render_combined_typst
 
 
 # =============================================================================
@@ -104,17 +109,29 @@ def _build_rebar_tasks(
             apply_min=apply_min,
         )
 
+    layer_label = "Tulangan Bawah" if layer == 'bottom' else "Tulangan Atas"
+    dir_label = "Arah X" if direction == 'x' else "Arah Y"
+
+    # What the report needs to describe this case, regardless of mode
+    result = {
+        'As': As, 'd_eff': d_eff,
+        'selection': None, 'kind': None, 'config_labels': None,
+        'title': f'{layer_label} ({dir_label})',
+        'figures': [],
+    }
+
     # Skip only when this face carries no moment at all. Testing As instead
     # would hide two things: layers held up purely by minimum steel, and
     # layers that are inadequate everywhere.
     if not np.any(Mu > 1e-9):
-        return tasks, As, d_eff
+        return tasks, result
 
-    layer_label = "Tulangan Bawah" if layer == 'bottom' else "Tulangan Atas"
-    dir_label = "Arah X" if direction == 'x' else "Arah Y"
     depth_label = format_depth_range(d_eff)
     subtitle = (f'(Method: {method.replace("-", " ").title()} '
                 f'| f\'c = {fc} MPa | d_eff = {depth_label})')
+
+    def _fig(tag):
+        return os.path.join(output_folder, f"rebar_{safe_filename(tag)}.png")
 
     # --- Task 1: As_required plot (always shown) ---
     tasks.append((
@@ -127,6 +144,9 @@ def _build_rebar_tasks(
         None,  # config_labels (not applicable for As plot)
         show_annotation,
     ))
+    result['figures'].append(
+        (f'As perlu — {layer_label} ({dir_label})', _fig(f'As_{case_label}'))
+    )
 
     # --- Task 2: Spacing or Diameter/Config plot ---
     if mode == 'spacing':
@@ -156,6 +176,12 @@ def _build_rebar_tasks(
             None,  # config_labels (not applicable for spacing plot)
             show_annotation,
         ))
+        result['selection'] = spacing
+        result['kind'] = 'spacing'
+        result['figures'].append(
+            (f'Spasi tulangan {label_code} — {layer_label} ({dir_label})',
+             _fig(f'spacing_{label_code}_{case_label}'))
+        )
     elif rebar_select_codes:
         # Mode B with custom config matching
         tasks.append((
@@ -168,6 +194,13 @@ def _build_rebar_tasks(
             sorted_codes,  # config_labels for colorbar
             show_annotation,
         ))
+        result['selection'] = selection
+        result['kind'] = 'config'
+        result['config_labels'] = sorted_codes
+        result['figures'].append(
+            (f'Konfigurasi tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+             _fig(f'config_s{int(spacing_input)}_{case_label}'))
+        )
     else:
         # Mode B, standard single-diameter matching (backward compatible)
         tasks.append((
@@ -180,8 +213,14 @@ def _build_rebar_tasks(
             None,  # config_labels (use default AVAILABLE_DIAMETERS)
             show_annotation,
         ))
+        result['selection'] = selection
+        result['kind'] = 'diameter'
+        result['figures'].append(
+            (f'Diameter tulangan s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+             _fig(f'diameter_s{int(spacing_input)}_{case_label}'))
+        )
 
-    return tasks, As, d_eff
+    return tasks, result
 
 
 def _build_shear_tasks(
@@ -252,59 +291,7 @@ def _build_shear_tasks(
     return tasks, Av_s
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='FEA Rebar Analysis & Contour Plot Generator'
-    )
-    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
-    parser.add_argument('--kordinat', type=str, help='Path to coordinate CSV')
-    parser.add_argument('--connectivity', type=str, help='Path to connectivity CSV')
-    parser.add_argument('--gaya', type=str, help='Path to force/moment CSV')
-    parser.add_argument('--thickness', type=float, default=DEFAULT_THICKNESS,
-                        help=f'Plate thickness in meters (default: {DEFAULT_THICKNESS})')
-    parser.add_argument('--fc', type=float, default=DEFAULT_FC,
-                        help=f"Concrete compressive strength in MPa (default: {DEFAULT_FC})")
-    parser.add_argument('--fy', type=float, default=DEFAULT_FY,
-                        help=f"Steel yield strength in MPa (default: {DEFAULT_FY})")
-    parser.add_argument('--cover', type=float, default=DEFAULT_COVER,
-                        help=f"Clear concrete cover in mm (default: {DEFAULT_COVER})")
-    parser.add_argument('--diameter', type=str, default=None,
-                        help='Rebar config code for Mode A (output = spacing). '
-                             'Examples: 16, 2D25, 3D32')
-    parser.add_argument('--spacing', type=float, default=150,
-                        help='Bar spacing in mm (Mode B: output = config, default: 150)')
-    parser.add_argument('--rebar-select', type=str, nargs='+', default=None,
-                        help='Select rebar configs for Mode B output. '
-                             'Examples: --rebar-select 16 22 25 2D25 2D32')
-    parser.add_argument('--output', type=str, default=OUTPUT_FOLDER,
-                        help=f'Output base folder (default: {OUTPUT_FOLDER})')
-    parser.add_argument('--no-mesh', action='store_true', help='Hide mesh wireframe')
-    parser.add_argument('--method', type=str,
-                        choices=['average-nodal', 'element-nodal', 'element-center', 'all'],
-                        default='average-nodal',
-                        help='Contour method (default: average-nodal)')
-    parser.add_argument('--comb', type=str, default='',
-                        help='Path to load combination CSV')
-    parser.add_argument('--comb-select', type=str, nargs='*', default=['*'],
-                        help='Filter combination names by wildcard pattern (default: * = all)')
-    parser.add_argument('--theme', type=str, choices=['light', 'dark'], default='light',
-                        help='Plot styling theme (default: light)')
-    parser.add_argument('--shear', action='store_true',
-                        help='Enable shear reinforcement analysis (Av/s from Vxx, Vyy)')
-    parser.add_argument('--shear-spacing-long', type=float, default=150,
-                        help='Stirrup longitudinal spacing in mm (default: 150)')
-    parser.add_argument('--shear-spacing-trans', type=float, default=150,
-                        help='Stirrup transversal spacing in mm (default: 150)')
-    parser.add_argument('--shear-select', type=int, nargs='+', default=None,
-                        help='Select available stirrup diameters in mm. '
-                             'Examples: --shear-select 10 13 16 19')
-    parser.add_argument('--no-annotation', action='store_true',
-                        help='Hide MAX marker and SECTION INADEQUATE badge on plots')
-    parser.add_argument('--no-as-min', action='store_true',
-                        help='Disable the SNI 24.4.3.2 minimum slab reinforcement '
-                             '(shrinkage & temperature). Use only to reproduce '
-                             'pre-2.0 results for comparison.')
-    args = parser.parse_args()
+def run(args):
 
     show_mesh = not args.no_mesh
     show_annotation = not args.no_annotation
@@ -439,6 +426,19 @@ def main():
         x, y, tris = (None, None, None) if method == 'element-center' else (mesh.x, mesh.y, mesh.triangles)
         polys, cents = (mesh.polygons, mesh.centroids) if method == 'element-center' else (None, None)
 
+        # Coordinates the report quotes when locating maxima and failures.
+        # element-center reports centroids; the other methods report nodes.
+        if method == 'element-center':
+            coords_for_report = (
+                np.array([c[0] for c in mesh.centroids]),
+                np.array([c[1] for c in mesh.centroids]),
+            )
+        else:
+            coords_for_report = (mesh.x, mesh.y)
+
+        # {source_name: {'folder', 'cases', 'figures'}} — feeds --report
+        report_sources = {}
+
         # --- Build Task Pool ---
         print("  [2/3] Building Rebar Task Pool...")
         all_tasks = []
@@ -446,12 +446,15 @@ def main():
         def process_moment_source(source_name, moment_arrays, folder_path):
             """Process one moment source (load case or combination) into plot tasks."""
             tasks = []
+            entry = report_sources.setdefault(
+                source_name, {'folder': folder_path, 'cases': [], 'figures': []},
+            )
             for moment_col, direction, layer, case_label in REBAR_CASES:
                 if moment_col not in moment_arrays:
                     continue
                 m_arr = moment_arrays[moment_col]
 
-                case_tasks, As, d_eff = _build_rebar_tasks(
+                case_tasks, res = _build_rebar_tasks(
                     x, y, tris, polys, cents,
                     m_arr, h_mm, args.cover, args.fc, args.fy,
                     diameter_input, spacing_input, mode,
@@ -464,6 +467,16 @@ def main():
                 )
                 tasks.extend(case_tasks)
 
+                As, d_eff = res['As'], res['d_eff']
+
+                # --- Report accumulation ---
+                if case_tasks:
+                    entry['cases'].append((res['title'], summarize_case(
+                        As, res['selection'], d_eff, coords_for_report,
+                        kind=res['kind'], config_labels=res['config_labels'],
+                    )))
+                    entry['figures'].extend(res['figures'])
+
                 # --- Envelope accumulation ---
                 # Reuse the As the plots were built from, so the envelope can
                 # never disagree with the per-case plots.
@@ -472,7 +485,11 @@ def main():
                     envelope_data[case_label] = As.copy()
                     envelope_depth[case_label] = d_arr.copy()
                 else:
-                    envelope_data[case_label] = np.fmax(envelope_data[case_label], As)
+                    # np.maximum, NOT np.fmax: fmax discards NaN, so a node
+                    # would only read as inadequate if EVERY case failed there.
+                    # The envelope is what the design is taken from — one
+                    # failing case is enough to condemn the node.
+                    envelope_data[case_label] = np.maximum(envelope_data[case_label], As)
                     envelope_depth[case_label] = np.fmin(envelope_depth[case_label], d_arr)
 
             return tasks
@@ -480,6 +497,9 @@ def main():
         def process_shear_source(source_name, force_arrays, folder_path):
             """Process one source for shear reinforcement."""
             tasks = []
+            entry = report_sources.setdefault(
+                source_name, {'folder': folder_path, 'cases': [], 'figures': []},
+            )
             for shear_col, direction, case_label in SHEAR_CASES:
                 if shear_col not in force_arrays:
                     continue
@@ -506,11 +526,26 @@ def main():
                 )
                 tasks.extend(case_tasks)
 
+                # --- Report figures for shear ---
+                if case_tasks:
+                    dir_label = "Arah X" if direction == 'x' else "Arah Y"
+                    for tag, cap in (
+                        (f'Avs_{case_label}', f'Av/s geser — {dir_label}'),
+                        (f'shear_diameter_s{int(s_l)}x{int(s_t)}_{case_label}',
+                         f'Diameter sengkang s={int(s_l)}×{int(s_t)}mm — {dir_label}'),
+                    ):
+                        entry['figures'].append(
+                            (cap, os.path.join(
+                                folder_path, f"rebar_{safe_filename(tag)}.png")),
+                        )
+
                 # --- Shear envelope accumulation (reuses the same Av_s) ---
                 if case_label not in shear_envelope_data:
                     shear_envelope_data[case_label] = Av_s.copy()
                 else:
-                    shear_envelope_data[case_label] = np.fmax(
+                    # np.maximum so a web-crushing failure in any single case
+                    # survives into the envelope (see the flexural note above).
+                    shear_envelope_data[case_label] = np.maximum(
                         shear_envelope_data[case_label], Av_s
                     )
 
@@ -782,23 +817,85 @@ def main():
             for err in errors[:5]:
                 print(f"    - {err.get('task', '?')}: {err.get('error', '?')}")
 
+        # --- Reports (--report) ---
+        if args.report and report_sources:
+            print("  [4/4] Menyusun laporan tulangan...")
+            typst_mode = uses_typst(args.report_format)
+            ext = document_ext(args.report_format)
+            render = (render_rebar_report_typst if typst_mode
+                      else render_rebar_report_md)
+            params = build_params(
+                args, h_mm, mode_desc, method, apply_min,
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            )
+            done = set(generated_files)
+            written, fragments = [], []
+            pdir = print_figure_dir(args.report_format, method_output)
+
+            for name, entry in report_sources.items():
+                if not entry['cases']:
+                    continue
+                figures = prepare_figures(entry['figures'], entry['folder'],
+                                          done, pdir)
+                content = render(name, entry['cases'], params, figures=figures)
+                clean = name.replace('Comb: ', '')
+                path = os.path.join(
+                    entry['folder'], f'Laporan_Tulangan_{safe_filename(clean)}{ext}',
+                )
+                written.append(write_document(content, path))
+                print(f"    {os.path.relpath(path, method_output)}")
+
+                if typst_mode:
+                    # Figures re-resolved against the combined document's
+                    # folder so the same PNG is reachable from both.
+                    fragments.append(render_rebar_report_typst(
+                        name, entry['cases'], params,
+                        figures=prepare_figures(entry['figures'],
+                                                method_output, done, pdir),
+                        preamble=False,
+                    ))
+
+            if typst_mode and fragments:
+                n_bad = sum(s['n_inadequate']
+                            for e in report_sources.values()
+                            for _, s in e['cases'])
+                combined = os.path.join(method_output, f'{COMBINED_STEM}{ext}')
+                write_document(render_combined_typst(
+                    {
+                        'title': 'Laporan Kebutuhan Tulangan',
+                        'subtitle': mode_desc,
+                        'rows': [
+                            ('Dibuat', params['generated']),
+                            ('Tebal pelat', f"{h_mm:.0f} mm"),
+                            ("f'c / fy", f"{args.fc:.0f} / {args.fy:.0f} MPa"),
+                            ('Selimut bersih', f"{args.cover:.0f} mm"),
+                            ('Metode kontur', method.replace('-', ' ').title()),
+                            ('Jumlah sumber', str(len(fragments))),
+                            ('Titik SECTION INADEQUATE', str(n_bad)),
+                            ('Koordinat', os.path.basename(k_file or '-')),
+                            ('Konektivitas', os.path.basename(c_file or '-')),
+                            ('Gaya', os.path.basename(g_file or '-')),
+                        ],
+                        'note': 'Dihasilkan oleh shell-kit menurut SNI 2847:2019. '
+                                'Titik SECTION INADEQUATE tidak dapat diselesaikan '
+                                'dengan memperbesar tulangan — tinjau tebal pelat '
+                                'atau mutu beton.',
+                    },
+                    fragments,
+                ), combined)
+                written.append(combined)
+                print(f"    {os.path.relpath(combined, method_output)}")
+
+            if args.report_format == 'pdf':
+                print("  Mengompilasi PDF...")
+                _, n_failed = compile_pdfs(written, method_output)
+                total_failed += n_failed
+
     # Failed plots used to exit 0 under a "[SUCCESS]" banner, so a run that
     # produced nothing looked identical to a good one.
     if total_failed:
         print(f"\n[FAILED] {total_failed} plot gagal dibuat. Lihat pesan di atas.")
         return 1
 
-    print("\n[SUCCESS] All rebar analysis plots generated.")
+    print(f"\n[SUCCESS] Selesai. Output di: {timestamp_output}")
     return 0
-
-
-def entry_point():
-    """Console script entry point (called by pyproject.toml [project.scripts])."""
-    import sys
-    from multiprocessing import freeze_support
-    freeze_support()
-    sys.exit(main())
-
-
-if __name__ == '__main__':
-    entry_point()

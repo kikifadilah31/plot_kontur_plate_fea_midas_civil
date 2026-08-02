@@ -11,7 +11,7 @@ import random
 
 import pytest
 
-from fea_contour.combination import (
+from shell_kit.combination import (
     resolve_load_case,
     validate_combinations,
     format_resolution_warnings,

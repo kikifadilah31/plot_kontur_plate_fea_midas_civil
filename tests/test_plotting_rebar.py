@@ -9,12 +9,12 @@ config plot failed — visible only as a "plots failed" count.
 import matplotlib.colors as mcolors
 import pytest
 
-from fea_contour.plotting_rebar import (
+from shell_kit.plotting_rebar import (
     build_categorical_colors,
     CATEGORICAL_COLORS,
     INADEQUATE_COLOR,
 )
-from fea_contour.rebar import REBAR_CONFIG_TABLE
+from shell_kit.rebar import REBAR_CONFIG_TABLE
 
 
 @pytest.mark.parametrize('n_bins', range(1, 41))

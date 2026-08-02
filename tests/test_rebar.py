@@ -9,7 +9,7 @@ zeroed back into safe-looking numbers.
 import numpy as np
 import pytest
 
-from fea_contour.rebar import (
+from shell_kit.rebar import (
     AVAILABLE_DIAMETERS, PHI_FLEXURE, PHI_SHEAR, STRIP_WIDTH_MM,
     calc_beta1, calc_as_min, calc_rho_max,
     calc_effective_depth, calc_as_required, apply_as_min,
