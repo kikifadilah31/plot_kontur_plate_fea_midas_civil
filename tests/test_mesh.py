@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fea_contour.mesh import MeshTopology
+from shell_kit.mesh import MeshTopology
 
 METHODS = ['average-nodal', 'element-nodal', 'element-center']
 

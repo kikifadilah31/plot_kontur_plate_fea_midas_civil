@@ -487,7 +487,7 @@ def compute_master_envelope(all_stats):
     }
 
 
-def render_report_md(title, stats, n_points, thickness, method):
+def render_report_md(title, stats, n_points, thickness, method, figures=None):
     """
     Render a single-source report as Markdown string.
 
@@ -498,6 +498,9 @@ def render_report_md(title, stats, n_points, thickness, method):
     n_points : int
     thickness : float
     method : str
+    figures : list of (caption, relative_path), optional
+        Contour plots to embed. Paths must already be relative to where this
+        document will be written.
 
     Returns
     -------
@@ -561,6 +564,16 @@ def render_report_md(title, stats, n_points, thickness, method):
             rpt.append(f"| **Maximum** | {format_value(e['max'])} | {_format_loc(e['max_loc'], e.get('max_elem'))} | {f_max} | {m_max} |")
             rpt.append(f"| **Minimum** | {format_value(e['min'])} | {_format_loc(e['min_loc'], e.get('min_elem'))} | {f_min} | {m_min} |")
             rpt.append(f"| Mean | {format_value(e['mean'])} | - | - | - |")
+            rpt.append("")
+
+    # Diagrams
+    if figures:
+        rpt.append("## Diagram Kontur")
+        rpt.append("")
+        for i, (caption, path) in enumerate(figures, 1):
+            rpt.append(f"### Gambar {i}. {caption}")
+            rpt.append("")
+            rpt.append(f"![{caption}]({path})")
             rpt.append("")
 
     return '\n'.join(rpt)

@@ -6,7 +6,7 @@ and reporting paths depend on.
 import numpy as np
 import pytest
 
-from fea_contour.math_utils import (
+from shell_kit.math_utils import (
     calculate_stress_vectorized, safe_filename, format_value,
 )
 

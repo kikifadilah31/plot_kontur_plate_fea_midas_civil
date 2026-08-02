@@ -1,21 +1,18 @@
 """
-CLI entry point for FEA Contour Plot Generator.
-Orchestrates mesh building, value mapping, and parallel plotting.
+`shell-kit plot` — contour plots of forces, moments and fibre stresses.
+
+Driven by shell_kit.cli, which owns the argument parser.
 """
 
 import os
-import sys
-import argparse
+import fnmatch
 import numpy as np
 from datetime import datetime
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
 
-from . import __version__
-
 from .config import (
-    DEFAULT_THICKNESS, ALL_METHODS, PLOTTABLE_COLUMNS,
-    STRESS_PAIRS, OUTPUT_FOLDER,
+    ALL_METHODS, PLOTTABLE_COLUMNS, STRESS_PAIRS,
 )
 from .math_utils import calculate_stress_vectorized, safe_filename
 from .combination import (
@@ -25,29 +22,11 @@ from .io_utils import load_csv_inputs, build_coord_dict, resolve_input_files
 from .mesh import MeshTopology
 from .values import ValueMapper
 from .plotting import init_worker, generate_plot_worker
+from .reporting import extract_statistics, compute_master_envelope
+from .report_writer import write_reports, compile_pdfs
 
 
-def main():
-    parser = argparse.ArgumentParser(description='FEA 2D Contour Plot Generator')
-    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
-    parser.add_argument('--kordinat', type=str, help='Path to coordinate CSV')
-    parser.add_argument('--connectivity', type=str, help='Path to connectivity CSV')
-    parser.add_argument('--gaya', type=str, help='Path to force/moment CSV')
-    parser.add_argument('--thickness', type=float, default=DEFAULT_THICKNESS,
-                        help=f'Plate thickness in meters (default: {DEFAULT_THICKNESS})')
-    parser.add_argument('--output', type=str, default=OUTPUT_FOLDER,
-                        help=f'Output base folder (default: {OUTPUT_FOLDER})')
-    parser.add_argument('--no-mesh', action='store_true', help='Hide mesh wireframe')
-    parser.add_argument('--method', type=str,
-                        choices=['average-nodal', 'element-nodal', 'element-center', 'all'],
-                        default='average-nodal',
-                        help='Contour method (default: average-nodal)')
-    parser.add_argument('--comb', type=str, default='',
-                        help='Path to load combination CSV')
-    parser.add_argument('--theme', type=str, choices=['light', 'dark'], default='light',
-                        help='Plot styling theme (default: light)')
-    args = parser.parse_args()
-
+def run(args):
     show_mesh = not args.no_mesh
     thickness = args.thickness
 
@@ -57,7 +36,7 @@ def main():
     os.makedirs(timestamp_output, exist_ok=True)
 
     print("=" * 60)
-    print("FEA CONTOUR PLOT GENERATOR (HYPER-OPTIMIZED)")
+    print("SHELL-KIT — KONTUR GAYA DALAM & TEGANGAN")
     print("=" * 60)
     print(f"Output Directory: {timestamp_output}")
     print(f"Plate Thickness:  {thickness * 1000:.0f} mm")
@@ -130,6 +109,15 @@ def main():
         # =====================================================================
         print("  [2/3] Building Global Task Pool (Fast Cache Lookup)...")
         all_tasks = []
+        # {source_name: {'folder', 'arrays', 'figures'}} — feeds --report
+        sources = {}
+
+        def _plot_path(folder, col, suffix):
+            """Mirror the filename the worker will write, so reports can link it."""
+            return os.path.join(
+                folder,
+                f"contour_{safe_filename(col)}_{safe_filename(suffix)}.png",
+            )
 
         # Union across ALL load cases — taking only the first one silently
         # dropped columns that happen to be absent from it.
@@ -143,6 +131,9 @@ def main():
             vm = value_mapper_cache[lc]
             load_folder = os.path.join(method_output, f"Load_{safe_filename(lc)}")
             os.makedirs(load_folder, exist_ok=True)
+            entry = sources.setdefault(
+                lc, {'folder': load_folder, 'arrays': {}, 'figures': []},
+            )
 
             x, y, tris = (None, None, None) if method == 'element-center' else (mesh.x, mesh.y, mesh.triangles)
             polys, cents = (mesh.polygons, mesh.centroids) if method == 'element-center' else (None, None)
@@ -162,6 +153,10 @@ def main():
                         col, col, suf, lc, load_folder,
                         method, show_mesh, axial_arr, moment_arr, args.theme,
                     ))
+                    entry['arrays'][col] = z
+                    entry['figures'].append(
+                        (f'{col} {suf}'.strip(), _plot_path(load_folder, col, suf))
+                    )
 
         # --- Combination tasks ---
         _, matched_map, uncertain = validate_combinations(combos, load_cases)
@@ -184,11 +179,24 @@ def main():
             if is_valid and resolved:
                 valid_combos.append({'name': combo['name'], 'lc_factors': resolved})
 
+        # --comb-select used to exist on rebar and report but not here
+        if args.comb_select != ['*'] and valid_combos:
+            filtered = [
+                c for c in valid_combos
+                if any(fnmatch.fnmatch(c['name'], pat) for pat in args.comb_select)
+            ]
+            print(f"  Filtered: {len(filtered)} / {len(valid_combos)} combinations")
+            valid_combos = filtered
+
         for combo in valid_combos:
             lc_factors = combo['lc_factors']
             combo_name = combo['name']
             combo_folder = os.path.join(method_output, f"Combination_{safe_filename(combo_name)}")
             os.makedirs(combo_folder, exist_ok=True)
+            combo_entry = sources.setdefault(
+                f"Comb: {combo_name}",
+                {'folder': combo_folder, 'arrays': {}, 'figures': []},
+            )
 
             x_ref, y_ref, tris_ref = (None, None, None) if method == 'element-center' else (mesh.x, mesh.y, mesh.triangles)
             polys_ref, cents_ref = (mesh.polygons, mesh.centroids) if method == 'element-center' else (None, None)
@@ -216,6 +224,10 @@ def main():
                         col, col, suf, f"Comb: {combo_name}", combo_folder,
                         method, show_mesh, axial_comb, moment_comb, args.theme,
                     ))
+                    combo_entry['arrays'][col] = z_comb
+                    combo_entry['figures'].append(
+                        (f'{col} {suf}'.strip(), _plot_path(combo_folder, col, suf))
+                    )
 
         # =====================================================================
         # [3/3] Parallel Plotting
@@ -244,23 +256,56 @@ def main():
             for err in errors[:5]:
                 print(f"    - {err.get('task', '?')}: {err.get('error', '?')}")
 
+        # --- Reports (--report) ---
+        if args.report and sources:
+            print("  [4/4] Menyusun laporan...")
+            all_stats = {}
+            for name, entry in sources.items():
+                if not entry['arrays']:
+                    continue
+                stats, n_pts = extract_statistics(entry['arrays'], mesh, thickness)
+                all_stats[name] = (stats, n_pts)
+                entry['stats'] = stats
+                entry['n_points'] = n_pts
+
+            written = write_reports(
+                sources=all_stats,
+                source_meta=sources,
+                envelope=compute_master_envelope(all_stats) if all_stats else None,
+                thickness=thickness,
+                method=method,
+                fmt=args.report_format,
+                out_folder=method_output,
+                generated=set(generated_files),
+                run_meta={
+                    'title': 'Laporan Kontur Gaya Dalam & Tegangan',
+                    'subtitle': f'Metode {method.replace("-", " ").title()}',
+                    'rows': [
+                        ('Dibuat', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                        ('Tebal pelat', f'{thickness * 1000:.0f} mm'),
+                        ('Metode kontur', method.replace('-', ' ').title()),
+                        ('Jumlah sumber', str(len(all_stats))),
+                        ('Koordinat', os.path.basename(k_file or '-')),
+                        ('Konektivitas', os.path.basename(c_file or '-')),
+                        ('Gaya', os.path.basename(g_file or '-')),
+                    ],
+                    'note': 'Dihasilkan oleh shell-kit. Nilai pada dokumen ini '
+                            'diinterpolasi mengikuti metode kontur di atas.',
+                },
+            )
+            for path in written:
+                print(f"    {os.path.relpath(path, method_output)}")
+
+            if args.report_format == 'pdf':
+                print("  Mengompilasi PDF...")
+                _, n_failed = compile_pdfs(written, method_output)
+                total_failed += n_failed
+
     # Failed plots used to exit 0 under a "[SUCCESS]" banner, so a run that
     # produced nothing looked identical to a good one.
     if total_failed:
         print(f"\n[FAILED] {total_failed} plot gagal dibuat. Lihat pesan di atas.")
         return 1
 
-    print("\n[SUCCESS] All plots generated in the output folder.")
+    print(f"\n[SUCCESS] Selesai. Output di: {timestamp_output}")
     return 0
-
-
-def entry_point():
-    """Console script entry point (called by pyproject.toml [project.scripts])."""
-    import sys
-    from multiprocessing import freeze_support
-    freeze_support()
-    sys.exit(main())
-
-
-if __name__ == '__main__':
-    entry_point()
