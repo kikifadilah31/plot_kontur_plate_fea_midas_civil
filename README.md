@@ -277,7 +277,8 @@ Menghitung kebutuhan tulangan pelat dari momen dan geser hasil FEM, lalu memetak
 > **Perilaku Superposisi:**
 > - Tanpa `--comb`: tulangan dihitung untuk setiap Load Case tunggal (berguna bila beban sudah ultimate, misal pilecap).
 > - Dengan `--comb`: **hanya** kombinasi beban yang sesuai filter yang dihitung.
-> - Folder **Envelope_Rebar** otomatis dibuat, berisi nilai maksimal dari seluruh kasus yang diproses. Titik yang gagal pada kasus mana pun ikut tertandai gagal di envelope.
+> - Folder **Envelope_Rebar** (dan **Envelope_Shear** bila `--shear`) otomatis dibuat, berisi nilai maksimal dari seluruh kasus yang diproses. Titik yang gagal pada kasus mana pun ikut tertandai gagal di envelope.
+> - Dengan `--report`, envelope mendapat laporannya sendiri (`Laporan_Tulangan_ENVELOPE`) dan ikut masuk ke `LAPORAN_LENGKAP`.
 
 **Contoh:**
 
@@ -406,9 +407,23 @@ $$ D_s = \sqrt{\frac{4 \cdot (A_v/s) \cdot s_{\text{longitudinal}} \cdot s_{\tex
    $$A_{s,perlu} = \frac{0.85 \cdot f'_c \cdot b \cdot d}{f_y} \left( 1 - \sqrt{1 - \frac{2 \cdot M_u}{\phi \cdot 0.85 \cdot f'_c \cdot b \cdot d^2}} \right)$$
    *(di mana $\phi = 0.9$ untuk lentur, $b = 1000$ mm)*
 
-3. **Tulangan Minimum** — SNI Pasal 24.4.3.2 (susut & suhu, mengatur pelat)
-   $$A_{s,min} = \rho_{min} \cdot b \cdot h, \qquad \rho_{min} = \begin{cases} 0.0020 & f_y < 420 \\ \max\left(0.0018 \cdot \frac{420}{f_y},\, 0.0014\right) & f_y \geq 420 \end{cases}$$
-   *Perhatikan: dihitung terhadap penampang **bruto** ($b \times h$), bukan terhadap $d$.*
+3. **Tulangan Minimum** — SNI 2847:2019 Pasal 24.4.3.2 (susut & suhu)
+   $$A_{s,min} = \rho_{min} \cdot b \cdot h, \qquad \rho_{min} = \begin{cases} 0{,}0020 & f_y < 420 \text{ MPa} \\[4pt] \max\left(0{,}0018 \cdot \dfrac{420}{f_y},\; 0{,}0014\right) & f_y \geq 420 \text{ MPa} \end{cases}$$
+
+   **Mengapa pelat memakai pasal susut & suhu, bukan pasal lentur.** Pada balok, tulangan minimum (Pasal 9.6.1.2) mencegah keruntuhan mendadak saat beton retak. Pada pelat, yang justru mengatur adalah **susut beton dan perubahan suhu** — retak akibat keduanya terjadi bahkan tanpa beban sama sekali. Karena itu pelat memakai Pasal 24.4.3.2, dan nilainya berlaku di **kedua arah**.
+
+   **Mengapa dikali $h$, bukan $d$.** Susut dan suhu bekerja pada **seluruh** tebal penampang, bukan hanya pada bagian tertekan seperti pada lentur. Jadi acuannya penampang **bruto** ($b \times h$). Ini beda dari $A_{s,min}$ balok yang memakai $b \times d$ — memakai $d$ di sini akan menghasilkan angka terlalu kecil.
+
+   **Mengapa rasionya turun saat $f_y$ naik.** Yang perlu dijaga adalah **gaya** tarik yang mampu ditahan tulangan, bukan luasnya. Baja bermutu lebih tinggi memberi gaya yang sama dengan luas lebih kecil, sehingga rasionya diskalakan dengan $420/f_y$. Batas bawah $0{,}0014$ mencegah rasio jatuh terlalu jauh pada baja bermutu sangat tinggi.
+
+   **Contoh** — pelat $h = 400$ mm, $b = 1000$ mm, $f_y = 420$ MPa:
+   $$\rho_{min} = \max\left(0{,}0018 \cdot \tfrac{420}{420},\; 0{,}0014\right) = 0{,}0018$$
+   $$A_{s,min} = 0{,}0018 \times 1000 \times 400 = 720 \text{ mm}^2\text{/m}$$
+   Setara D13–150 (884 mm²/m) atau D16–250 (804 mm²/m).
+
+   > **Cara `shell-kit` memakainya:** $A_s$ akhir $= \max(A_{s,perlu},\, A_{s,min})$ — diterapkan **per lapis, per arah**, sehingga tiap lapis punya minimumnya sendiri. Titik yang sudah ditandai *SECTION INADEQUATE* **tidak** diselamatkan oleh minimum ini: penampang yang gagal tetap gagal. Nonaktifkan dengan `--no-as-min` bila ingin membandingkan dengan hasil v1.x.
+
+   Kode: [`calc_as_min()`](src/shell_kit/rebar.py) dan [`apply_as_min()`](src/shell_kit/rebar.py).
 
 4. **Batas Daktilitas** — SNI Tabel 21.2.2
    $$\rho_{max} = 0.85 \cdot \beta_1 \cdot \frac{f'_c}{f_y} \cdot \frac{\varepsilon_{cu}}{\varepsilon_{cu} + \varepsilon_{ty} + 0.003}, \qquad \varepsilon_{ty} = \frac{f_y}{E_s}$$
@@ -490,11 +505,23 @@ Aktifkan dengan `--report` pada perintah mana pun. Format diatur lewat `--format
 
 ### `rebar --report`
 
-Per sumber (`Laporan_Tulangan_<nama>.md`):
+Per sumber (`Laporan_Tulangan_<nama>.md`), **plus `Laporan_Tulangan_ENVELOPE`** yang meringkas nilai maksimum seluruh kasus — inilah yang dipakai untuk desain menentukan:
+
 - **Parameter desain** — h, selimut, f'c, fy, mode perhitungan, serta batas code yang benar-benar dipakai ($A_{s,min}$, $\rho_{max}$, $\beta_1$)
-- **Ringkasan per lapis** — rentang $d_{eff}$, $A_s$ maksimum dan lokasinya, tulangan terpilih di titik terkritis, jumlah titik gagal
+- **Ringkasan per lapis** — rentang $d_{eff}$, $A_s$ maksimum dan lokasinya, tulangan terpilih di titik terkritis
+- **Ringkasan tulangan geser** — $d_v$, $A_v/s$ maksimum, sengkang terpilih, jumlah titik yang butuh sengkang, dan zona hancur badan
 - **Zona SECTION INADEQUATE** — daftar koordinat titik yang gagal, beserta penjelasan penyebab dan tindakan yang relevan. Bila tidak ada yang gagal, dinyatakan eksplisit
 - **Seluruh plot tulangan tersemat sebagai figure**
+
+### Dua jenis kegagalan yang dibedakan
+
+Tabel ringkasan memisahkan dua hal yang sering tertukar, karena penanganannya berbeda:
+
+| Kolom | Arti | Tindakan |
+|-------|------|----------|
+| **Penampang gagal** | Momen melampaui kapasitas lentur, atau $\rho > \rho_{max}$ sehingga penampang tidak daktail | Tebalkan pelat atau naikkan mutu beton |
+| **Tulangan tak muat** | $A_s$ terpenuhi secara teori, tapi tidak ada diameter/konfigurasi tersedia yang cukup pada spasi ini | Perlebar pilihan lewat `--rebar-select`, atau rapatkan spasi |
+| **Hancur badan** (geser) | $V_s > 0{,}66\sqrt{f'_c}\,b_w d$ (SNI 22.5.1.2) | Tebalkan pelat — sengkang lebih besar tidak menolong |
 
 > Daftar titik gagal dibatasi 15 baris per lapis agar dokumen tetap terbaca; jumlah sebenarnya tetap dicantumkan dan sebaran lengkapnya terlihat pada diagram.
 

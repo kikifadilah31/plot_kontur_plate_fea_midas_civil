@@ -195,3 +195,100 @@ def test_reports_render_without_figures():
     for render in (render_rebar_report_md, render_rebar_report_typst):
         doc = render('LC1', _sample_cases(), _params())
         assert 'Parameter Desain' in doc
+
+
+# =============================================================================
+# Shear summary
+# =============================================================================
+
+from shell_kit.reporting_rebar import summarize_shear_case
+
+
+def test_shear_summary_separates_crushing_from_demand():
+    """
+    Av/s = nan means web crushing — no stirrup solves it. That must not be
+    lumped in with nodes that merely need stirrups.
+    """
+    Av_s = np.array([0.0, 0.5, np.nan, 1.2])
+    D = np.array([0.0, 10.0, np.nan, 13.0])
+    s = summarize_shear_case(Av_s, D, 350.0, COORDS)
+
+    assert s['n_inadequate'] == 1            # crushing
+    assert s['n_needing_stirrups'] == 2      # 0.5 and 1.2
+    assert s['avs_max'] == pytest.approx(1.2)
+    assert s['diameter_at_max'] == 'D13'
+    assert s['inadequate_points'] == [(2.0, 1.0)]
+
+
+def test_shear_case_with_no_stirrups_needed_is_quiet():
+    s = summarize_shear_case(np.zeros(4), np.zeros(4), 350.0, COORDS)
+    assert s['n_inadequate'] == 0
+    assert s['n_needing_stirrups'] == 0
+    assert s['max_loc'] is None
+
+
+# =============================================================================
+# Section failure vs no bar that fits — different problems, different fixes
+# =============================================================================
+
+def test_no_bar_fits_is_counted_separately_from_section_failure():
+    """
+    As computable but no available diameter satisfies it is NOT the same as
+    the section being unable to carry the moment. Counting only the latter
+    left a real problem invisible: the report showed 'TIDAK MEMADAI' in the
+    bar column beside a failure count of zero.
+    """
+    As = np.array([100.0, 5000.0, np.nan, 200.0])
+    selection = np.array([13.0, np.nan, np.nan, 16.0])
+
+    s = summarize_case(As, selection, 350.0, COORDS, kind='diameter')
+
+    assert s['n_inadequate'] == 1     # only the nan As
+    assert s['n_no_bar'] == 1         # As fine, but nothing fits
+
+
+def test_no_bar_count_is_zero_when_everything_fits():
+    As = np.array([100.0, 200.0, 300.0, 400.0])
+    sel = np.array([13.0, 16.0, 19.0, 22.0])
+    assert summarize_case(As, sel, 350.0, COORDS)['n_no_bar'] == 0
+
+
+def test_markdown_shows_both_failure_columns():
+    cases = [('Atas (X)', summarize_case(
+        np.array([100.0, 5000.0, np.nan, 200.0]),
+        np.array([13.0, np.nan, np.nan, 16.0]),
+        350.0, COORDS, kind='diameter'))]
+    doc = render_rebar_report_md('LC1', cases, _params())
+
+    assert 'Penampang gagal' in doc
+    assert 'Tulangan tak muat' in doc
+    assert 'rebar-select' in doc          # the actionable remedy
+
+
+def test_typst_report_with_shear_compiles():
+    from shell_kit.pdf import compile_to_pdf
+    import tempfile, os
+
+    shear = [('Geser Arah X', summarize_shear_case(
+        np.array([0.0, 0.5, np.nan, 1.2]),
+        np.array([0.0, 10.0, np.nan, 13.0]), 350.0, COORDS))]
+    doc = render_rebar_report_typst('LC1', _sample_cases(), _params(),
+                                    shear_cases=shear)
+    assert 'Ringkasan Tulangan Geser' in doc
+
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'r.typ')
+        open(p, 'w', encoding='utf-8').write(doc)
+        pdf, warns = compile_to_pdf(p)
+        assert os.path.exists(pdf)
+        assert warns == []
+
+
+def test_shear_failures_appear_in_the_coordinate_listing():
+    shear = [('Geser Arah X', summarize_shear_case(
+        np.array([0.0, np.nan, 0.0, 0.0]),
+        np.array([0.0, np.nan, 0.0, 0.0]), 350.0, COORDS))]
+    doc = render_rebar_report_md('LC1', [_sample_cases()[0]], _params(),
+                                 shear_cases=shear)
+    assert 'Geser Arah X' in doc
+    assert '1.000' in doc               # coordinate of the crushing node

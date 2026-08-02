@@ -319,3 +319,62 @@ def test_typst_format_leaves_images_at_full_resolution(tmp_path, data_available)
     _assert_clean(r)
     assert not list(tmp_path.rglob('_figur_pdf'))
     assert not list(tmp_path.rglob('*.pdf'))
+
+
+def test_envelope_is_reported_not_just_plotted(tmp_path, data_available):
+    """
+    Envelope_Rebar and Envelope_Shear are what the design is taken from, yet
+    their plots were produced and then left out of every report — orphaned on
+    disk with nothing pointing at them.
+    """
+    r = _run('rebar', [*_inputs(), '--spacing', '150', '--shear',
+                       '--no-mesh', '--report'], tmp_path)
+    _assert_clean(r)
+
+    env_reports = list(tmp_path.rglob('Laporan_Tulangan_ENVELOPE.md'))
+    assert env_reports, 'envelope tidak punya laporan'
+
+    doc = env_reports[0].read_text(encoding='utf-8')
+    assert 'Ringkasan per Lapis' in doc
+    assert 'Ringkasan Tulangan Geser' in doc
+
+    # Every envelope plot must be linked from it
+    for folder in ('Envelope_Rebar', 'Envelope_Shear'):
+        for png in tmp_path.rglob(f'{folder}/*.png'):
+            assert png.name in doc, f'{png.name} dihasilkan tapi tak dirujuk'
+
+
+def test_combined_document_includes_the_envelope(tmp_path, data_available):
+    r = _run('rebar', [*_inputs(), '--spacing', '150', '--shear',
+                       '--no-mesh', '--report', '--format', 'typst'], tmp_path)
+    _assert_clean(r)
+
+    combined = list(tmp_path.rglob('LAPORAN_LENGKAP.typ'))
+    assert combined
+    assert 'ENVELOPE' in combined[0].read_text(encoding='utf-8')
+
+
+def test_shear_has_numbers_in_the_report_not_only_pictures(tmp_path, data_available):
+    """Av/s, stirrup size and web-crushing counts had no table anywhere."""
+    r = _run('rebar', [*_inputs(), '--spacing', '150', '--shear',
+                       '--no-mesh', '--report'], tmp_path)
+    _assert_clean(r)
+
+    per_case = [p for p in tmp_path.rglob('Laporan_Tulangan_*.md')
+                if 'ENVELOPE' not in p.name]
+    assert per_case
+    doc = per_case[0].read_text(encoding='utf-8')
+    assert 'Ringkasan Tulangan Geser' in doc
+    assert 'Hancur badan' in doc
+
+
+def test_report_distinguishes_section_failure_from_no_bar_fitting(tmp_path, data_available):
+    r = _run('rebar', [*_inputs(), '--spacing', '150', '--no-mesh',
+                       '--report'], tmp_path)
+    _assert_clean(r)
+
+    docs = list(tmp_path.rglob('Laporan_Tulangan_*.md'))
+    assert docs
+    doc = docs[0].read_text(encoding='utf-8')
+    assert 'Penampang gagal' in doc
+    assert 'Tulangan tak muat' in doc

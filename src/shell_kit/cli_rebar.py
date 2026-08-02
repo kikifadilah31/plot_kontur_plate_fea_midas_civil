@@ -34,7 +34,7 @@ from .rebar import (
 )
 from .plotting_rebar import init_rebar_worker, generate_rebar_plot_worker
 from .reporting_rebar import (
-    summarize_case, build_params,
+    summarize_case, summarize_shear_case, build_params,
     render_rebar_report_md, render_rebar_report_typst,
 )
 from .report_writer import (
@@ -63,6 +63,9 @@ SHEAR_CASES = [
     ('Vxx (kN/m)', 'x', 'Vxx_Shear_X'),
     ('Vyy (kN/m)', 'y', 'Vyy_Shear_Y'),
 ]
+
+# Report source name for the envelope — the governing design case
+ENVELOPE_NAME = 'ENVELOPE'
 
 
 def _build_rebar_tasks(
@@ -447,7 +450,9 @@ def run(args):
             """Process one moment source (load case or combination) into plot tasks."""
             tasks = []
             entry = report_sources.setdefault(
-                source_name, {'folder': folder_path, 'cases': [], 'figures': []},
+                source_name,
+                {'folder': folder_path, 'cases': [], 'shear_cases': [],
+                 'figures': []},
             )
             for moment_col, direction, layer, case_label in REBAR_CASES:
                 if moment_col not in moment_arrays:
@@ -498,7 +503,9 @@ def run(args):
             """Process one source for shear reinforcement."""
             tasks = []
             entry = report_sources.setdefault(
-                source_name, {'folder': folder_path, 'cases': [], 'figures': []},
+                source_name,
+                {'folder': folder_path, 'cases': [], 'shear_cases': [],
+                 'figures': []},
             )
             for shear_col, direction, case_label in SHEAR_CASES:
                 if shear_col not in force_arrays:
@@ -526,9 +533,20 @@ def run(args):
                 )
                 tasks.extend(case_tasks)
 
-                # --- Report figures for shear ---
+                # --- Report figures + summary for shear ---
                 if case_tasks:
                     dir_label = "Arah X" if direction == 'x' else "Arah Y"
+                    dv_case = calc_effective_depth(h_mm, args.cover, 16.0,
+                                                   direction, 'bottom')
+                    entry['shear_cases'].append((
+                        f'Geser {dir_label}',
+                        summarize_shear_case(
+                            Av_s,
+                            calc_shear_diameter(
+                                Av_s, s_l, s_t,
+                                available_diameters=shear_select_diameters),
+                            dv_case, coords_for_report),
+                    ))
                     for tag, cap in (
                         (f'Avs_{case_label}', f'Av/s geser — {dir_label}'),
                         (f'shear_diameter_s{int(s_l)}x{int(s_t)}_{case_label}',
@@ -647,6 +665,15 @@ def run(args):
             envelope_folder = os.path.join(method_output, "Envelope_Rebar")
             os.makedirs(envelope_folder, exist_ok=True)
 
+            # The envelope is what the design is actually taken from, so it
+            # belongs in the report like any other source. It lives at the run
+            # root because it spans both Envelope_Rebar and Envelope_Shear.
+            env_entry = report_sources.setdefault(
+                ENVELOPE_NAME,
+                {'folder': method_output, 'cases': [], 'shear_cases': [],
+                 'figures': []},
+            )
+
             for case_label, As_env in envelope_data.items():
                 # Find direction/layer info from case_label
                 for moment_col, direction, layer, cl in REBAR_CASES:
@@ -670,6 +697,12 @@ def run(args):
                     None,  # config_labels
                     show_annotation,
                 ))
+                env_entry['figures'].append((
+                    f'ENVELOPE As perlu — {layer_label} ({dir_label})',
+                    os.path.join(envelope_folder,
+                                 f'rebar_{safe_filename(f"ENVELOPE_As_{case_label}")}.png'),
+                ))
+                env_sel = env_kind = env_labels = None
 
                 # Spacing/Diameter/Config envelope plot
                 if mode == 'spacing':
@@ -694,6 +727,12 @@ def run(args):
                         None,  # config_labels
                         show_annotation,
                     ))
+                    env_sel, env_kind = spacing_env, 'spacing'
+                    env_entry['figures'].append((
+                        f'ENVELOPE spasi {label_code} — {layer_label} ({dir_label})',
+                        os.path.join(envelope_folder,
+                                     f'rebar_{safe_filename(f"ENVELOPE_spacing_{label_code}_{case_label}")}.png'),
+                    ))
                 else:
                     if rebar_select_codes:
                         cfg_idx, sorted_codes, sorted_areas = select_config_from_As(
@@ -709,6 +748,12 @@ def run(args):
                             sorted_codes,  # config_labels
                             show_annotation,
                         ))
+                        env_sel, env_kind, env_labels = cfg_idx, 'config', sorted_codes
+                        env_entry['figures'].append((
+                            f'ENVELOPE konfigurasi s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+                            os.path.join(envelope_folder,
+                                         f'rebar_{safe_filename(f"ENVELOPE_config_s{int(spacing_input)}_{case_label}")}.png'),
+                        ))
                     else:
                         D_env = calc_diameter_from_spacing(As_env, spacing_input)
                         all_tasks.append((
@@ -721,11 +766,29 @@ def run(args):
                             None,  # config_labels
                             show_annotation,
                         ))
+                        env_sel, env_kind = D_env, 'diameter'
+                        env_entry['figures'].append((
+                            f'ENVELOPE diameter s={int(spacing_input)}mm — {layer_label} ({dir_label})',
+                            os.path.join(envelope_folder,
+                                         f'rebar_{safe_filename(f"ENVELOPE_diameter_s{int(spacing_input)}_{case_label}")}.png'),
+                        ))
+
+                env_entry['cases'].append((
+                    f'{layer_label} ({dir_label})',
+                    summarize_case(As_env, env_sel, envelope_depth[case_label],
+                                   coords_for_report, kind=env_kind,
+                                   config_labels=env_labels),
+                ))
 
         # --- Shear Envelope tasks ---
         if args.shear and shear_envelope_data:
             shear_env_folder = os.path.join(method_output, "Envelope_Shear")
             os.makedirs(shear_env_folder, exist_ok=True)
+            env_entry = report_sources.setdefault(
+                ENVELOPE_NAME,
+                {'folder': method_output, 'cases': [], 'shear_cases': [],
+                 'figures': []},
+            )
 
             for case_label, Av_s_env in shear_envelope_data.items():
                 for shear_col, direction, cl in SHEAR_CASES:
@@ -773,6 +836,21 @@ def run(args):
                     f'ENVELOPE_shear_D_s{int(s_l)}x{int(s_t)}_{case_label}',
                     shear_env_labels,  # config_labels for custom shear colorbar
                     show_annotation,
+                ))
+
+                for tag, cap in (
+                    (f'ENVELOPE_Avs_{case_label}',
+                     f'ENVELOPE Av/s geser — {dir_label}'),
+                    (f'ENVELOPE_shear_D_s{int(s_l)}x{int(s_t)}_{case_label}',
+                     f'ENVELOPE diameter sengkang s={int(s_l)}×{int(s_t)}mm — {dir_label}'),
+                ):
+                    env_entry['figures'].append((cap, os.path.join(
+                        shear_env_folder, f'rebar_{safe_filename(tag)}.png')))
+
+                env_entry['shear_cases'].append((
+                    f'Geser {dir_label}',
+                    summarize_shear_case(Av_s_env, D_shear_env, dv,
+                                         coords_for_report),
                 ))
 
         # --- Parallel Plotting ---
@@ -837,7 +915,8 @@ def run(args):
                     continue
                 figures = prepare_figures(entry['figures'], entry['folder'],
                                           done, pdir)
-                content = render(name, entry['cases'], params, figures=figures)
+                content = render(name, entry['cases'], params, figures=figures,
+                                 shear_cases=entry.get('shear_cases'))
                 clean = name.replace('Comb: ', '')
                 path = os.path.join(
                     entry['folder'], f'Laporan_Tulangan_{safe_filename(clean)}{ext}',
@@ -853,12 +932,16 @@ def run(args):
                         figures=prepare_figures(entry['figures'],
                                                 method_output, done, pdir),
                         preamble=False,
+                        shear_cases=entry.get('shear_cases'),
                     ))
 
             if typst_mode and fragments:
-                n_bad = sum(s['n_inadequate']
-                            for e in report_sources.values()
-                            for _, s in e['cases'])
+                n_bad = sum(
+                    s['n_inadequate']
+                    for e in report_sources.values()
+                    if e is not report_sources.get(ENVELOPE_NAME)
+                    for _, s in list(e['cases']) + list(e.get('shear_cases') or [])
+                )
                 combined = os.path.join(method_output, f'{COMBINED_STEM}{ext}')
                 write_document(render_combined_typst(
                     {
