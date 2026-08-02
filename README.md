@@ -1,5 +1,5 @@
 # shell-kit
-**Versi 3.2.0 | Post-processing pelat/shell Midas Civil**
+**Versi 3.3.0 | Post-processing pelat/shell Midas Civil**
 
 Alat baris perintah untuk mengolah hasil elemen pelat/shell dari Midas Civil (atau solver sejenis): kontur gaya dalam, desain tulangan menurut SNI 2847:2019, dan laporan teknis **PDF** lengkap dengan diagram.
 
@@ -7,6 +7,44 @@ Alat baris perintah untuk mengolah hasil elemen pelat/shell dari Midas Civil (at
 shell-kit plot  --method all --no-mesh
 shell-kit rebar --fc 30 --fy 420 --spacing 150 --report --format pdf
 ```
+
+---
+
+## 🖥️ Baru di 3.3.0 — Antarmuka grafis (opsional)
+
+Untuk yang tidak terbiasa dengan baris perintah:
+
+```bash
+shell-kit ui
+```
+
+Membuka formulir di browser untuk mengisi opsi lalu menjalankannya. **Hasilnya mendarat di folder kerja tempat perintah dipanggil, persis seperti menjalankan CLI langsung** — folder `output/` yang sama, isi yang sama.
+
+Yang perlu dipahami soal rancangannya: **UI tidak menghitung apa pun sendiri.** Ia menyusun perintah lalu memanggil CLI sebagai subprocess. Perhitungan, pemeriksaan code, dan penulisan berkas seluruhnya lewat jalur kode yang sama. Konsekuensinya UI tidak bisa melenceng dari CLI — setiap opsi dan setiap perbaikan otomatis ikut.
+
+> Repo ini pernah punya UI Streamlit yang meng-import potongan engine lalu menulis ulang orkestrasinya sendiri. UI itu akhirnya dihapus karena jadi implementasi kedua yang harus dijaga sinkron. Rancangan sekarang sengaja menghindari itu.
+
+Formulir juga menampilkan **perintah setara** yang bisa disalin ke terminal atau dikirim ke rekan:
+
+```bash
+shell-kit rebar --fc 35 --no-as-min --shear --report --format pdf
+```
+
+### Memasang
+
+Streamlit bersifat **opsional** — pengguna CLI tidak menanggung unduhannya.
+
+```bash
+uv tool install "shell-kit[ui]" --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil
+```
+
+Atau sekali jalan tanpa memasang:
+
+```bash
+uvx --with streamlit --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil shell-kit ui
+```
+
+Dari clone lokal: `uv sync --extra ui`. Menjalankan `shell-kit ui` tanpa streamlit terpasang akan menampilkan petunjuk ini, bukan error.
 
 ---
 
@@ -624,4 +662,4 @@ uv run pytest
 ---
 
 **License:** MIT  
-**Version:** 3.2.0
+**Version:** 3.3.0

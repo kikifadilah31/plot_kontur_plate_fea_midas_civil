@@ -156,6 +156,16 @@ def build_parser():
     _add_style_args(p_rebar)
     _add_report_args(p_rebar)
 
+    sub.add_parser(
+        'ui',
+        help='Antarmuka grafis untuk mengisi opsi dan menjalankan (opsional)',
+        description='Membuka formulir Streamlit di browser. Formulir hanya '
+                    'menyusun perintah lalu menjalankannya — seluruh '
+                    'perhitungan tetap memakai jalur kode yang sama dengan '
+                    'CLI. Hasil mendarat di folder kerja tempat perintah ini '
+                    'dipanggil, persis seperti menjalankan CLI langsung.',
+    )
+
     return parser
 
 
@@ -167,6 +177,12 @@ def main(argv=None):
         parser.print_help()
         return 2
 
+    # 'ui' tidak punya argumen analisis sama sekali, jadi ia harus keluar dari
+    # jalur ini sebelum atribut laporan disentuh.
+    if args.command == 'ui':
+        from .ui.launcher import launch
+        return launch()
+
     # --format only means something alongside --report; say so rather than
     # silently ignoring it.
     if args.report_format != 'md' and not args.report:
@@ -175,8 +191,10 @@ def main(argv=None):
 
     if args.command == 'plot':
         from .cli_plot import run
-    else:
+    elif args.command == 'rebar':
         from .cli_rebar import run
+    else:
+        parser.error(f"perintah tidak dikenali: {args.command}")
 
     return run(args)
 

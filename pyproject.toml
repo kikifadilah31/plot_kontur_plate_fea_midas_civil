@@ -1,6 +1,6 @@
 [project]
 name = "shell-kit"
-version = "3.2.0"
+version = "3.3.0"
 description = "shell-kit — Post-processing pelat/shell Midas Civil: kontur gaya dalam, desain tulangan SNI, dan laporan"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,13 @@ dependencies = [
     "tqdm>=4.65",
     "typst>=0.15.0",
     "pillow>=9.0",
+]
+
+[project.optional-dependencies]
+# Antarmuka grafis. Sengaja opsional: streamlit menarik banyak paket
+# (pyarrow, tornado, altair), dan pengguna CLI tidak perlu menanggungnya.
+ui = [
+    "streamlit>=1.57",
 ]
 
 [dependency-groups]
