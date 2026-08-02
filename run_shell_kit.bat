@@ -49,9 +49,24 @@ echo PILIH PERINTAH
 echo --------------------------------------------
 echo [1] rebar  (Analisis dan plot kebutuhan tulangan pelat)
 echo [2] plot   (Plot kontur gaya dalam dan tegangan)
+echo [3] ui     (Antarmuka grafis di browser - tanpa mengetik perintah)
 echo.
-set /p cmd_choice="Masukkan pilihan perintah (1-2) [Default: 1]: "
+set /p cmd_choice="Masukkan pilihan perintah (1-3) [Default: 1]: "
 if "%cmd_choice%"=="" set cmd_choice=1
+
+if "%cmd_choice%"=="3" (
+    echo.
+    echo ============================================
+    echo   MEMBUKA ANTARMUKA GRAFIS
+    echo ============================================
+    echo   Hasil akan disimpan di folder ini:
+    echo   %CD%
+    echo.
+    uvx !EXTRA_FLAGS! --with streamlit --from !REMOTE_URL! shell-kit ui
+    echo.
+    pause
+    exit /b 0
+)
 
 if "%cmd_choice%"=="2" (
     set SUBCMD=plot
