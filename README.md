@@ -34,25 +34,16 @@ shell-kit rebar --fc 35 --no-as-min --shear --report --format pdf
 
 Streamlit bersifat **opsional** — pengguna CLI tidak menanggung unduhannya.
 
-```bash
-uv tool install "shell-kit[ui] @ git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil"
-```
+| Cara | Perintah |
+|------|----------|
+| Pasang permanen | `uv tool install "shell-kit[ui] @ git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil"` |
+| Sekali jalan | `uvx --with streamlit --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil shell-kit ui` |
+| Sekali jalan, tanpa git | `uvx --with streamlit --from https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/heads/main.zip shell-kit ui` |
+| Dari clone lokal | `uv sync --extra ui` |
 
-(Bukan `--from`: menggabungkan `[ui]` dengan `--from <url>` membuat `uv` menganggap keduanya dua permintaan paket yang berbeda dan gagal dengan pesan "conflicts with install request". Tulis sebagai satu spesifikasi PEP 508 seperti di atas.)
-
-Atau sekali jalan tanpa memasang:
-
-```bash
-uvx --with streamlit --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil shell-kit ui
-```
-
-**Tanpa git terpasang di PC**: prefiks `git+https://...` di atas memerintahkan `uv` melakukan `git clone`, jadi butuh git. Kalau PC tujuan tidak punya git, pakai arsip zip GitHub — itu cuma unduhan HTTP biasa (di-`unzip`, bukan `git clone`), jadi git tidak dibutuhkan sama sekali:
-
-```bash
-uvx --with streamlit --from https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/heads/main.zip shell-kit ui
-```
-
-Dari clone lokal: `uv sync --extra ui`. Menjalankan `shell-kit ui` tanpa streamlit terpasang akan menampilkan petunjuk ini, bukan error.
+- Jangan tulis `--from <url>` berdampingan dengan `"shell-kit[ui]"` sebagai dua argumen terpisah — `uv` membacanya sebagai dua permintaan paket berbeda dan menolak dengan pesan *"conflicts with install request"*. Gabungkan keduanya sebagai satu spesifikasi PEP 508, seperti pada baris "Pasang permanen".
+- Prefiks `git+https://...` memerintahkan `git clone`, jadi butuh git terpasang. Kalau PC tujuan tidak punya git, pakai baris "tanpa git" — itu unduhan arsip zip biasa, tidak menyentuh git sama sekali.
+- Menjalankan `shell-kit ui` tanpa streamlit terpasang akan menampilkan petunjuk pasang ini, bukan error.
 
 ---
 
