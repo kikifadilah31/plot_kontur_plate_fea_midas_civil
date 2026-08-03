@@ -35,8 +35,10 @@ shell-kit rebar --fc 35 --no-as-min --shear --report --format pdf
 Streamlit bersifat **opsional** — pengguna CLI tidak menanggung unduhannya.
 
 ```bash
-uv tool install "shell-kit[ui]" --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil
+uv tool install "shell-kit[ui] @ git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil"
 ```
+
+(Bukan `--from`: menggabungkan `[ui]` dengan `--from <url>` membuat `uv` menganggap keduanya dua permintaan paket yang berbeda dan gagal dengan pesan "conflicts with install request". Tulis sebagai satu spesifikasi PEP 508 seperti di atas.)
 
 Atau sekali jalan tanpa memasang:
 

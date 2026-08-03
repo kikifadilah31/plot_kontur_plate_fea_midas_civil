@@ -18,7 +18,7 @@ INSTALL_HINT = """\
 Paket 'streamlit' tidak ditemukan. Antarmuka grafis bersifat opsional.
 
   Pasang permanen:
-    uv tool install "shell-kit[ui]" --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil
+    uv tool install "shell-kit[ui] @ git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil"
 
   Atau jalankan sekali tanpa memasang:
     uvx --with streamlit --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil shell-kit ui
