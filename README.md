@@ -44,6 +44,12 @@ Atau sekali jalan tanpa memasang:
 uvx --with streamlit --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil shell-kit ui
 ```
 
+**Tanpa git terpasang di PC**: prefiks `git+https://...` di atas memerintahkan `uv` melakukan `git clone`, jadi butuh git. Kalau PC tujuan tidak punya git, pakai arsip zip GitHub — itu cuma unduhan HTTP biasa (di-`unzip`, bukan `git clone`), jadi git tidak dibutuhkan sama sekali:
+
+```bash
+uvx --with streamlit --from https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/heads/main.zip shell-kit ui
+```
+
 Dari clone lokal: `uv sync --extra ui`. Menjalankan `shell-kit ui` tanpa streamlit terpasang akan menampilkan petunjuk ini, bukan error.
 
 ---
