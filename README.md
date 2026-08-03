@@ -37,12 +37,14 @@ Streamlit bersifat **opsional** — pengguna CLI tidak menanggung unduhannya.
 | Cara | Perintah |
 |------|----------|
 | Pasang permanen | `uv tool install "shell-kit[ui] @ git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil"` |
+| Pasang permanen, tanpa git | `uv tool install "shell-kit[ui] @ https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/heads/main.zip"` |
 | Sekali jalan | `uvx --with streamlit --from git+https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil shell-kit ui` |
 | Sekali jalan, tanpa git | `uvx --with streamlit --from https://github.com/kikifadilah31/plot_kontur_plate_fea_midas_civil/archive/refs/heads/main.zip shell-kit ui` |
 | Dari clone lokal | `uv sync --extra ui` |
 
 - Jangan tulis `--from <url>` berdampingan dengan `"shell-kit[ui]"` sebagai dua argumen terpisah — `uv` membacanya sebagai dua permintaan paket berbeda dan menolak dengan pesan *"conflicts with install request"*. Gabungkan keduanya sebagai satu spesifikasi PEP 508, seperti pada baris "Pasang permanen".
-- Prefiks `git+https://...` memerintahkan `git clone`, jadi butuh git terpasang. Kalau PC tujuan tidak punya git, pakai baris "tanpa git" — itu unduhan arsip zip biasa, tidak menyentuh git sama sekali.
+- Prefiks `git+https://...` memerintahkan `git clone`, jadi butuh git terpasang. Kalau PC tujuan tidak punya git, pakai salah satu baris "tanpa git" — itu unduhan arsip zip biasa, tidak menyentuh git sama sekali.
+- `main.zip` selalu berisi commit terbaru, bukan versi terkunci, jadi `uv tool upgrade` tidak bisa diandalkan mendeteksi rilis baru lewat jalur ini. Untuk PC yang jarang di-upgrade ulang ini tidak masalah; kalau butuh upgrade rutin, jalur `git+` lebih cocok.
 - Menjalankan `shell-kit ui` tanpa streamlit terpasang akan menampilkan petunjuk pasang ini, bukan error.
 
 ---
